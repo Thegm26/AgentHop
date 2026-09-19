@@ -118,7 +118,6 @@ frontend.
 - [Provider adapters](docs/PROVIDER_ADAPTERS.md) — adapter contract and boundaries.
 - [Security](docs/SECURITY.md) and [vulnerability reporting](SECURITY.md).
 - [Contributing](CONTRIBUTING.md).
-- [Project article](docs/ARTICLE.md) and [publishing checklist](docs/DEVTO_PUBLISHING.md).
 
 ## License
 
