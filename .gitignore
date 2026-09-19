@@ -1,0 +1,50 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.venv/
+venv/
+dist/
+build/
+
+# JavaScript
+node_modules/
+frontend/node_modules/
+frontend/dist/
+*.tsbuildinfo
+
+# Local configuration
+.env
+.env.*
+!.env.example
+
+# Provider credentials and local state -- never commit these
+auth.json
+**/auth.json
+.codex/
+.codex-profiles/
+sessions/
+archived_sessions/
+shell_snapshots/
+thread-writer-locks/
+state_*.sqlite
+state_*.sqlite-*
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+
+# Logs and runtime files
+*.log
+*.pid
+.agenthop/
+
+# Editors and operating systems
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

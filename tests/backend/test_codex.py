@@ -1,0 +1,298 @@
+from __future__ import annotations
+
+import os
+import shlex
+import sqlite3
+import time
+from pathlib import Path
+
+import pytest
+
+from agenthop.providers.codex import CodexAdapter
+
+
+@pytest.fixture
+def adapter(tmp_path: Path) -> CodexAdapter:
+    default = tmp_path / ".codex"
+    profiles = tmp_path / ".codex-profiles"
+    default.mkdir()
+    profiles.mkdir()
+    return CodexAdapter(
+        default_home=default,
+        profile_root=profiles,
+        binary="/usr/bin/codex-test",
+        rpc_timeout=0.1,
+    )
+
+
+def add_profile(adapter: CodexAdapter, name: str, authenticated: bool = True) -> Path:
+    home = adapter.profile_root / name
+    home.mkdir()
+    if authenticated:
+        (home / "auth.json").touch(mode=0o600)
+    return home
+
+
+def test_discovers_accounts_without_reading_auth(
+    adapter: CodexAdapter, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    add_profile(adapter, "account-01")
+    (adapter.profile_root / "bad name").mkdir()
+
+    original = Path.read_text
+
+    def guarded_read(path: Path, *args, **kwargs):
+        assert path.name != "auth.json"
+        return original(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", guarded_read)
+
+    accounts = adapter.accounts()
+    assert [account.id for account in accounts] == ["default", "account-01"]
+    assert accounts[1].authenticated is True
+
+
+def test_activation_is_atomic_and_validated(adapter: CodexAdapter) -> None:
+    add_profile(adapter, "account-01")
+    adapter.activate("account-01")
+    assert (adapter.profile_root / ".active").read_text() == "account-01\n"
+    assert adapter.accounts()[1].active is True
+    with pytest.raises(LookupError, match="unknown account"):
+        adapter.activate("missing")
+    with pytest.raises(ValueError, match="invalid account"):
+        adapter.activate("../escape")
+
+
+def test_stale_active_marker_falls_back_to_default(adapter: CodexAdapter) -> None:
+    (adapter.profile_root / ".active").write_text("missing\n")
+    assert adapter.accounts()[0].active is True
+
+
+def test_command_shares_state_and_never_contains_auth(adapter: CodexAdapter) -> None:
+    home = add_profile(adapter, "account-01")
+    session = home / "sessions" / "2026" / "rollout.jsonl"
+    session.parent.mkdir(parents=True)
+    session.write_text("safe session")
+
+    command = adapter.command("account-01", "resume", "abc-123")
+
+    assert command == (
+        f"CODEX_HOME={home} CODEX_SQLITE_HOME={adapter.default_home} "
+        "/usr/bin/codex-test resume abc-123"
+    )
+    assert "auth.json" not in command
+    assert (
+        adapter.default_home / "sessions" / "2026" / "rollout.jsonl"
+    ).read_text() == "safe session"
+    assert (home / "sessions").is_symlink()
+
+
+def test_command_validation_blocks_shell_injection(adapter: CodexAdapter) -> None:
+    add_profile(adapter, "account-01")
+    with pytest.raises(ValueError, match="invalid sessionId"):
+        adapter.command("account-01", "resume", "abc; touch /tmp/owned")
+    with pytest.raises(ValueError, match="invalid sessionId"):
+        adapter.command("account-01", "resume", "../../auth.json")
+    with pytest.raises(ValueError, match="only valid"):
+        adapter.command("account-01", "new", "abc")
+
+
+def test_command_quotes_paths_with_spaces(tmp_path: Path) -> None:
+    adapter = CodexAdapter(
+        default_home=tmp_path / "default home",
+        profile_root=tmp_path / "profile root",
+        binary="/opt/Codex App/codex",
+    )
+    adapter.default_home.mkdir()
+    adapter.profile_root.mkdir()
+
+    words = shlex.split(adapter.command("default", "new"))
+
+    assert words == [
+        f"CODEX_HOME={adapter.default_home}",
+        f"CODEX_SQLITE_HOME={adapter.default_home}",
+        "/opt/Codex App/codex",
+    ]
+
+
+def test_collision_migration_preserves_both_files(adapter: CodexAdapter) -> None:
+    home = add_profile(adapter, "account-01")
+    shared = adapter.default_home / "sessions" / "same.jsonl"
+    local = home / "sessions" / "same.jsonl"
+    shared.parent.mkdir()
+    local.parent.mkdir()
+    shared.write_text("original")
+    local.write_text("different")
+    create_threads_database(
+        adapter.default_home / "state_5.sqlite",
+        [("shared", "Shared", 10, str(shared))],
+    )
+    create_threads_database(
+        home / "state_5.sqlite",
+        [("profile", "Profile", 20, str(local))],
+    )
+
+    adapter.command("account-01", "new")
+
+    assert shared.read_text() == "original"
+    conflicts = list(shared.parent.glob("same.jsonl.agenthop-conflict-*"))
+    assert len(conflicts) == 1
+    assert conflicts[0].read_text() == "different"
+    with sqlite3.connect(adapter.default_home / "state_5.sqlite") as database:
+        rollout = database.execute(
+            "SELECT rollout_path FROM threads WHERE id = 'profile'"
+        ).fetchone()[0]
+    assert rollout == str(conflicts[0])
+
+
+def create_threads_database(path: Path, rows: list[tuple[str, str, int, str]]) -> None:
+    with sqlite3.connect(path) as database:
+        database.execute(
+            "CREATE TABLE threads (id TEXT PRIMARY KEY, title TEXT, updated_at INTEGER, rollout_path TEXT)"
+        )
+        database.executemany("INSERT INTO threads VALUES (?, ?, ?, ?)", rows)
+
+
+def test_migrates_and_lists_shared_sqlite_sessions(adapter: CodexAdapter) -> None:
+    home = add_profile(adapter, "account-01")
+    create_threads_database(
+        adapter.default_home / "state_5.sqlite",
+        [("shared", "Shared", 10, str(adapter.default_home / "sessions/shared.jsonl"))],
+    )
+    create_threads_database(
+        home / "state_5.sqlite",
+        [("profile", "Profile", 20, str(home / "sessions/profile.jsonl"))],
+    )
+
+    adapter.command("account-01", "new")
+    sessions = adapter.sessions()
+
+    assert [session.id for session in sessions] == ["profile", "shared"]
+    with sqlite3.connect(adapter.default_home / "state_5.sqlite") as database:
+        rollout = database.execute(
+            "SELECT rollout_path FROM threads WHERE id = 'profile'"
+        ).fetchone()[0]
+    assert rollout == str(adapter.default_home / "sessions/profile.jsonl")
+
+
+def test_first_profile_database_seeds_missing_shared_database(
+    adapter: CodexAdapter,
+) -> None:
+    home = add_profile(adapter, "account-01")
+    create_threads_database(
+        home / "state_5.sqlite",
+        [("profile", "Profile", 20, str(home / "sessions/profile.jsonl"))],
+    )
+
+    assert adapter.sessions() == []
+    adapter.command("account-01", "new")
+    sessions = adapter.sessions()
+
+    assert [session.id for session in sessions] == ["profile"]
+    assert (adapter.default_home / "state_5.sqlite").stat().st_mode & 0o777 == 0o600
+
+
+def test_duplicate_account_is_not_usable(adapter: CodexAdapter) -> None:
+    home = add_profile(adapter, "account-01")
+    (home / ".duplicate-of").write_text("default\n")
+    account = adapter.accounts()[1]
+    assert account.duplicate is True
+    with pytest.raises(ValueError, match="duplicate"):
+        adapter.command("account-01", "new")
+
+
+def test_usage_mapping_and_status() -> None:
+    usage = CodexAdapter._usage(
+        {"account": {"planType": "plus"}},
+        {
+            "ordinaryUsageAllowed": True,
+            "rateLimits": {
+                "primary": {
+                    "windowDurationMins": 300,
+                    "usedPercent": 96,
+                    "resetsAt": 100,
+                },
+                "secondary": {
+                    "windowDurationMins": 10080,
+                    "usedPercent": 40,
+                    "resetsAt": 200,
+                },
+            },
+        },
+    )
+    assert usage.status == "critical"
+    assert usage.plan == "plus"
+    assert usage.five_hour_used == 96
+
+
+def test_destination_symlink_is_rejected(adapter: CodexAdapter, tmp_path: Path) -> None:
+    home = add_profile(adapter, "account-01")
+    local = home / "sessions" / "nested" / "rollout.jsonl"
+    local.parent.mkdir(parents=True)
+    local.write_text("session")
+    external = tmp_path / "external"
+    external.mkdir()
+    shared = adapter.default_home / "sessions"
+    shared.mkdir()
+    (shared / "nested").symlink_to(external, target_is_directory=True)
+
+    with pytest.raises(RuntimeError, match="symlink inside shared-state destination"):
+        adapter.command("account-01", "new")
+    assert not (external / "rollout.jsonl").exists()
+    assert local.read_text() == "session"
+
+
+def test_rpc_partial_line_honors_timeout_and_cleans_up(tmp_path: Path) -> None:
+    pid_file = tmp_path / "pid"
+    binary = tmp_path / "fake-codex"
+    binary.write_text(
+        "#!/usr/bin/env python3\n"
+        "import os, pathlib, sys, time\n"
+        f"pathlib.Path({str(pid_file)!r}).write_text(str(os.getpid()))\n"
+        "sys.stdin.readline()\n"
+        "sys.stdout.write('{\\\"id\\\":2')\n"
+        "sys.stdout.flush()\n"
+        "time.sleep(10)\n"
+    )
+    binary.chmod(0o700)
+    home = tmp_path / "home"
+    home.mkdir()
+    adapter = CodexAdapter(
+        default_home=home,
+        profile_root=tmp_path / "profiles",
+        binary=str(binary),
+        rpc_timeout=0.05,
+    )
+
+    started = time.monotonic()
+    with pytest.raises(RuntimeError, match="timed out"):
+        adapter._rpc_call(home)
+    assert time.monotonic() - started < 1
+    pid = int(pid_file.read_text())
+    with pytest.raises(ProcessLookupError):
+        os.kill(pid, 0)
+
+
+def test_rpc_does_not_surface_server_error_details(tmp_path: Path) -> None:
+    binary = tmp_path / "fake-codex"
+    binary.write_text(
+        "#!/usr/bin/env python3\n"
+        "import sys, time\n"
+        "sys.stdin.readline()\n"
+        'print(\'{\\"id\\":2,\\"error\\":{\\"message\\":\\"secret-token\\"}}\', flush=True)\n'
+        'print(\'{\\"id\\":3,\\"result\\":{}}\', flush=True)\n'
+        "time.sleep(10)\n"
+    )
+    binary.chmod(0o700)
+    home = tmp_path / "home"
+    home.mkdir()
+    adapter = CodexAdapter(
+        default_home=home,
+        profile_root=tmp_path / "profiles",
+        binary=str(binary),
+        rpc_timeout=1,
+    )
+
+    with pytest.raises(RuntimeError) as error:
+        adapter._rpc_call(home)
+    assert "secret-token" not in str(error.value)
