@@ -25,10 +25,11 @@ describe('App', () => {
   })
 
   it('shows accounts, recommendation, usage, and recent sessions', async () => {
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(json(state))
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(json(state))
     render(<App />)
 
     expect(await screen.findByRole('heading', { name: 'Pick up where you left off.' })).toBeInTheDocument()
+    expect(fetchMock).toHaveBeenCalledWith('/api/refresh', expect.objectContaining({ method: 'POST' }))
     expect(screen.getByRole('heading', { name: 'work' })).toBeInTheDocument()
     expect(screen.getByText('Best choice')).toBeInTheDocument()
     expect(screen.getByText('Build account switcher')).toBeInTheDocument()
@@ -36,7 +37,7 @@ describe('App', () => {
     expect(screen.queryByText(/1970/)).not.toBeInTheDocument()
   })
 
-  it('does not imply full capacity when usage has not been refreshed', async () => {
+  it('does not imply full capacity when live usage is unavailable', async () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(json({
       ...state,
       accounts: [{ provider: 'codex', id: 'work', active: true, authenticated: true, duplicate: false }],
@@ -92,5 +93,6 @@ describe('App', () => {
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3))
     expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/providers/codex/accounts/personal/activate', expect.objectContaining({ method: 'POST' }))
+    expect(fetchMock).toHaveBeenNthCalledWith(3, '/api/refresh', expect.objectContaining({ method: 'POST' }))
   })
 })

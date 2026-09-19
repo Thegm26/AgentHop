@@ -63,7 +63,7 @@ export default function App() {
     const requestId = ++stateRequest.current
     setError('')
     try {
-      const next = await api.getState()
+      const next = await api.refresh()
       applyState(next, requestId)
     } catch (reason) {
       if (requestId === stateRequest.current) setError(reason instanceof Error ? reason.message : 'Could not connect to AgentHop.')
