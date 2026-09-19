@@ -17,7 +17,9 @@ from urllib.request import Request, urlopen
 
 
 ROOT = Path(os.environ.get("AGENTHOP_PROJECT_ROOT", Path(__file__).resolve().parents[2]))
-ICON = ROOT / "frontend" / "public" / "assets" / "agenthop-mascot.png"
+BUILT_ICON = ROOT / "frontend" / "dist" / "assets" / "agenthop-mascot.png"
+SOURCE_ICON = ROOT / "frontend" / "public" / "assets" / "agenthop-mascot.png"
+ICON = BUILT_ICON if BUILT_ICON.is_file() else SOURCE_ICON
 HTTP_TIMEOUT = 4
 
 

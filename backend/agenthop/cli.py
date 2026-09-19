@@ -36,7 +36,12 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "desktop":
         if not 0 <= args.port <= 65535:
             build_parser().error("--port must be between 0 and 65535")
-        root = Path(__file__).resolve().parents[2]
+        # The npm launcher runs the installed package from a private Python
+        # environment, so this module's location is no longer the application
+        # root. Keep the source checkout fallback for direct Python installs.
+        root = Path(
+            os.environ.get("AGENTHOP_PROJECT_ROOT", Path(__file__).resolve().parents[2])
+        )
         shell = root / "backend" / "agenthop" / "desktop.py"
         environment = os.environ | {
             "AGENTHOP_BACKEND_PYTHON": sys.executable,

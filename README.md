@@ -22,7 +22,29 @@ to make it active, then open the dashboard only when you need onboarding,
 details, or a copyable command for a new or resumed session. AgentHop does not
 run Codex commands in the browser, and the browser never receives credentials.
 
-## Quickstart
+## Install with npm
+
+AgentHop is published as a Linux npm package. Install it globally, then launch
+the tray application:
+
+```bash
+npm install -g agenthop
+agenthop
+```
+
+`npx agenthop` also works for a temporary install. The first launch creates an
+isolated Python runtime under `$XDG_CACHE_HOME/agenthop` (or `~/.cache/agenthop`). It needs Python 3.11+ with venv support,
+Node.js 18.19+, the Codex CLI on `PATH`, and these Linux desktop libraries:
+GTK 3, WebKit2GTK 4.1, and Ayatana AppIndicator3. On Ubuntu 24.04:
+
+```bash
+sudo apt install python3-venv python3-gi gir1.2-gtk-3.0 gir1.2-webkit2-4.1 gir1.2-ayatanaappindicator3-0.1
+```
+
+The dashboard stays local and opens from the AgentHop system-tray icon. A
+second `agenthop` invocation opens the existing dashboard.
+
+## Quickstart from source
 
 Requirements: Python 3.11+, Node.js 18.19+ (Node 20+ recommended), npm, and a
 Codex CLI installation available on `PATH`. Each profile must be authenticated
@@ -111,6 +133,20 @@ npm --prefix frontend run build
 `.venv/bin/agenthop` starts the standalone loopback API on port 8765. The interactive API
 reference is available at `/docs`; use Vite's port-8000 proxy when developing the
 frontend.
+
+## Publishing a release
+
+The package tarball builds the dashboard before publishing and contains the
+Python backend, desktop launcher, and built frontend. Before publishing, run:
+
+```bash
+npm run test:package
+npm pack --dry-run
+npm publish
+```
+
+Publishing requires an authenticated npm account with permission to publish the
+`agenthop` package. npm will run `prepack` automatically during `npm publish`.
 
 ## Further reading
 

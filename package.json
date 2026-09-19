@@ -1,0 +1,48 @@
+{
+  "name": "agenthop",
+  "version": "0.1.0",
+  "description": "Local, tray-first AI coding account switcher",
+  "license": "MIT",
+  "type": "module",
+  "os": [
+    "linux"
+  ],
+  "engines": {
+    "node": ">=18.19"
+  },
+  "bin": {
+    "agenthop": "./bin/agenthop.js"
+  },
+  "files": [
+    "backend",
+    "bin",
+    "frontend/dist",
+    "scripts/runtime.js",
+    "pyproject.toml",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "npm --prefix frontend run build",
+    "prepack": "npm run build && node scripts/verify-package.js",
+    "test:package": "node --test tests/npm/*.test.mjs"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Thegm26/AgentHop.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Thegm26/AgentHop/issues"
+  },
+  "homepage": "https://github.com/Thegm26/AgentHop#readme",
+  "publishConfig": {
+    "access": "public"
+  },
+  "keywords": [
+    "codex",
+    "ai",
+    "cli",
+    "account-switcher",
+    "linux"
+  ]
+}
