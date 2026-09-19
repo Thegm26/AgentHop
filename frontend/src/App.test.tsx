@@ -147,6 +147,20 @@ describe('App', () => {
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3))
   })
 
+  it('cancels profile creation without sending a request and clears the entered name', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(json(state))
+    render(<App />)
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Add account' }))
+    await userEvent.type(screen.getByLabelText('New account name'), 'account-05')
+    await userEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+
+    expect(screen.queryByLabelText('New account name')).not.toBeInTheDocument()
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    await userEvent.click(screen.getByRole('button', { name: 'Add account' }))
+    expect(screen.getByLabelText('New account name')).toHaveValue('')
+  })
+
   it('keeps a successful profile creation visible when the follow-up refresh fails', async () => {
     vi.spyOn(globalThis, 'fetch')
       .mockResolvedValueOnce(json(state))

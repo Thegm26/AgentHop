@@ -118,6 +118,11 @@ export default function App() {
     setBusyKey('')
   }
 
+  function cancelOnboarding() {
+    setAddingAccount(false)
+    setNewAccount('')
+  }
+
   if (!state && !error) return <LoadingView />
 
   return (
@@ -178,7 +183,7 @@ export default function App() {
               </div>
               {addingAccount && canOnboard && <form className="onboard-form" onSubmit={(event) => void onboard(event)}>
                 <label htmlFor="new-account">New account name</label>
-                <div className="onboard-controls"><input id="new-account" value={newAccount} onChange={(event) => setNewAccount(event.target.value)} placeholder="e.g. account-05" pattern="[A-Za-z0-9][A-Za-z0-9._-]{0,63}" maxLength={64} required autoFocus /><button className="button button--primary" type="submit" disabled={Boolean(busyKey) || refreshing}>{busyKey === 'onboard' ? 'Preparing…' : 'Create profile'}</button></div>
+                <div className="onboard-controls"><input id="new-account" value={newAccount} onChange={(event) => setNewAccount(event.target.value)} placeholder="e.g. account-05" pattern="[A-Za-z0-9][A-Za-z0-9._-]{0,63}" maxLength={64} required autoFocus /><button className="button button--primary" type="submit" disabled={Boolean(busyKey) || refreshing}>{busyKey === 'onboard' ? 'Preparing…' : 'Create profile'}</button><button className="button button--secondary" type="button" onClick={cancelOnboarding} disabled={Boolean(busyKey) || refreshing}>Cancel</button></div>
                 <p>Creates a separate local profile. You’ll run a terminal command to sign in; no password is entered here.</p>
               </form>}
               {provider && (!provider.available || provider.error) && <div className="provider-warning" role="status">{provider.error || `${provider.name} is currently unavailable.`}</div>}
