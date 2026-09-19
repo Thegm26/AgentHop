@@ -130,7 +130,6 @@ export default function App() {
     <div className="app-shell">
       <header className="topbar">
         <a className="brand" href="#top" aria-label="AgentHop home">
-          <img className="brand-mark" src="/assets/agenthop-mascot.png" width="1254" height="1254" alt="" aria-hidden="true" />
           <span>Agent<span>Hop</span></span>
         </a>
         <div className="topbar-actions">
