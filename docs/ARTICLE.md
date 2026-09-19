@@ -181,7 +181,8 @@ does not parse provider files and should never receive credential contents.
 The FastAPI backend is the application boundary. It validates input, selects an
 adapter, serializes results, and maps known failures to useful responses. It is
 also the security boundary for the browser: local-only defaults and no
-secret-bearing payloads. In development, Vite proxies relative `/api` requests.
+secret-bearing payloads. In development, Vite serves the dashboard on port 8080
+and proxies relative `/api` requests.
 The API restricts accepted Host values to loopback names, permits CORS only for
 loopback HTTP(S) origins, and explicitly rejects other supplied Origin headers.
 That still is not authentication: local non-browser clients can omit Origin.
@@ -235,7 +236,12 @@ or blocked accounts, and prevents overlapping account actions while a refresh or
 operation is in flight. The API still supports resume command preparation, while
 the dashboard focuses on account status and does not expose conversation titles.
 Reset times arrive as integer epochs; the UI handles seconds and milliseconds
-and displays the time remaining.
+and displays a human-readable countdown. Usable accounts appear first,
+with the recommended account leading that group. Blocked accounts are visually
+muted and follow them; when their reset times are known, they are ordered by the
+time they are expected to become usable. If several usage windows are exhausted,
+that expected time is the later reset, because all exhausted windows must clear.
+The active account is deliberately more prominent than an ordinary status label.
 
 ## What the dashboard changes—and what it does not
 
@@ -244,9 +250,17 @@ provider status, recommendation inputs, and errors can be shown before the next
 launch. This reduces the chance that an environment variable set in a forgotten
 shell silently controls an important process.
 
-It does not change provider rules. AgentHop does not create accounts, bypass
-limits, manufacture capacity, or guarantee that an undocumented provider surface
-will remain stable. Usage figures can be missing, stale, or change semantics.
+For Codex, choosing “Add account” creates an isolated local profile directory;
+it does not create a Codex, OpenAI, or other provider account. The dashboard then
+displays a terminal command such as
+`CODEX_HOME=<profile-path> codex -c cli_auth_credentials_store="file" login`.
+The user runs that command and completes the Codex CLI sign-in in a browser.
+That separate local profile is not a ChatGPT account and does not create any
+provider account; AgentHop never asks for a password in its own UI.
+
+It does not change provider rules. AgentHop does not create provider accounts,
+bypass limits, manufacture capacity, or guarantee that an undocumented provider
+surface will remain stable. Usage figures can be missing, stale, or change semantics.
 Unknown data should be shown as unknown.
 
 It also does not eliminate backups. Any first migration of real developer state

@@ -106,7 +106,7 @@ npm install
 npm run dev
 ```
 
-Open the URL printed by Vite (normally `http://localhost:5173`). Keep the API
+Open the URL printed by Vite (normally `http://localhost:8080`). Keep the API
 bound to loopback unless you have added authentication and transport security.
 The CLI defaults to port `8765`; the development frontend currently proxies to
 port `8000`, which is why the quickstart sets it explicitly. The proxy target is

@@ -8,7 +8,8 @@ export default defineConfig(({ mode }) => {
   return {
     plugins: [react()],
     server: {
-      port: 5173,
+      port: 8080,
+      strictPort: true,
       proxy: {
         '/api': {
           target: env.AGENTHOP_API_URL || 'http://127.0.0.1:8000',
