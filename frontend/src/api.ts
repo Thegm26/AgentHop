@@ -34,6 +34,11 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 export const api = {
   getState: () => request<AgentHopState>('/api/state'),
   refresh: () => request<AgentHopState>('/api/refresh', { method: 'POST' }),
+  onboard: (providerId: string, account: string) =>
+    request<{ provider: string; account: string; command: string }>(
+      `/api/providers/${encodeURIComponent(providerId)}/accounts`,
+      { method: 'POST', body: JSON.stringify({ account }) },
+    ),
   activate: (providerId: string, accountId: string) =>
     request<{ provider: string; account: string; active: boolean }>(
       `/api/providers/${encodeURIComponent(providerId)}/accounts/${encodeURIComponent(accountId)}/activate`,

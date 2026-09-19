@@ -14,6 +14,16 @@ describe('api', () => {
     }))
   })
 
+  it('creates a profile with an encoded provider and no credentials payload', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({ provider: 'open ai', account: 'work', command: 'codex login' }), { status: 201, headers: { 'Content-Type': 'application/json' } }))
+
+    await expect(api.onboard('open ai', 'work')).resolves.toEqual({ provider: 'open ai', account: 'work', command: 'codex login' })
+    expect(fetchMock).toHaveBeenCalledWith('/api/providers/open%20ai/accounts', expect.objectContaining({
+      method: 'POST',
+      body: JSON.stringify({ account: 'work' }),
+    }))
+  })
+
   it('surfaces backend error details', async () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({ detail: 'Account is unavailable' }), { status: 409, headers: { 'Content-Type': 'application/json' } }))
 

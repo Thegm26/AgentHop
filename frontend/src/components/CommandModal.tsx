@@ -4,10 +4,11 @@ import { CheckIcon, CloseIcon, CopyIcon, TerminalIcon } from './Icons'
 interface Props {
   command: string
   title: string
+  description?: string
   onClose: () => void
 }
 
-export function CommandModal({ command, title, onClose }: Props) {
+export function CommandModal({ command, title, description = 'Run this in your terminal. AgentHop has already selected the right account and session.', onClose }: Props) {
   const dialog = useRef<HTMLDialogElement>(null)
   const resetTimer = useRef<number>()
   const titleId = useId()
@@ -70,7 +71,7 @@ export function CommandModal({ command, title, onClose }: Props) {
         <div className="dialog-icon"><TerminalIcon /></div>
         <p className="eyebrow">Ready to hop</p>
         <h2 id={titleId}>{title}</h2>
-        <p className="dialog-copy" id={descriptionId}>Run this in your terminal. AgentHop has already selected the right account and session.</p>
+        <p className="dialog-copy" id={descriptionId}>{description}</p>
         <div className="command-box">
           <code tabIndex={0} aria-label="Terminal command">{command}</code>
           <button className="copy-button" onClick={copy} aria-label="Copy command">

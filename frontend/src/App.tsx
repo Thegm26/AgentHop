@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import type { FormEvent } from 'react'
 import { api } from './api'
 import { AccountCard } from './components/AccountCard'
 import { CommandModal } from './components/CommandModal'
 import { RefreshIcon, SparkIcon } from './components/Icons'
 import type { Account, AgentHopState } from './types'
 
-type ModalState = { command: string; title: string } | null
+type ModalState = { command: string; title: string; description?: string } | null
 
 function LoadingView() {
   return (
@@ -25,6 +26,8 @@ export default function App() {
   const [refreshing, setRefreshing] = useState(false)
   const [busyKey, setBusyKey] = useState('')
   const [modal, setModal] = useState<ModalState>(null)
+  const [addingAccount, setAddingAccount] = useState(false)
+  const [newAccount, setNewAccount] = useState('')
   const stateRequest = useRef(0)
 
   const applyState = useCallback((next: AgentHopState, requestId: number) => {
@@ -49,6 +52,7 @@ export default function App() {
   const accounts = useMemo(() => state?.accounts.filter((account) => account.provider === providerId) ?? [], [state, providerId])
   const recommendedId = state?.recommendation?.provider === providerId ? state.recommendation.account : undefined
   const provider = state?.providers.find((item) => item.id === providerId)
+  const canOnboard = providerId === 'codex' && Boolean(provider?.available) && !provider?.error
 
   async function refresh() {
     const requestId = ++stateRequest.current
@@ -91,6 +95,27 @@ export default function App() {
     } finally {
       setBusyKey((current) => current === key ? '' : current)
     }
+  }
+
+  async function onboard(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    const account = newAccount.trim()
+    if (!providerId || !account) return
+    setBusyKey('onboard')
+    setError('')
+    let result: Awaited<ReturnType<typeof api.onboard>>
+    try {
+      result = await api.onboard(providerId, account)
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Could not add the account.')
+      setBusyKey('')
+      return
+    }
+    setAddingAccount(false)
+    setNewAccount('')
+    setModal({ command: result.command, title: `Connect ${account}`, description: 'Run this in your terminal and complete the Codex sign-in in your browser. Then return here and click Refresh usage.' })
+    await load()
+    setBusyKey('')
   }
 
   if (!state && !error) return <LoadingView />
@@ -149,8 +174,13 @@ export default function App() {
             <section aria-labelledby="accounts-heading">
               <div className="section-heading">
                 <div><p className="section-kicker">{provider?.name ?? 'Provider'}</p><h2 id="accounts-heading">Your accounts</h2></div>
-                {state.recommendation?.reason && recommendedId && <p className="recommendation-note"><SparkIcon /> {state.recommendation.reason}</p>}
+                {providerId === 'codex' && <button className="button button--secondary" onClick={() => setAddingAccount((current) => !current)} disabled={!canOnboard || Boolean(busyKey) || refreshing}>Add account</button>}
               </div>
+              {addingAccount && canOnboard && <form className="onboard-form" onSubmit={(event) => void onboard(event)}>
+                <label htmlFor="new-account">New account name</label>
+                <div className="onboard-controls"><input id="new-account" value={newAccount} onChange={(event) => setNewAccount(event.target.value)} placeholder="e.g. account-05" pattern="[A-Za-z0-9][A-Za-z0-9._-]{0,63}" maxLength={64} required autoFocus /><button className="button button--primary" type="submit" disabled={Boolean(busyKey) || refreshing}>{busyKey === 'onboard' ? 'Preparing…' : 'Create profile'}</button></div>
+                <p>Creates a separate local profile. You’ll run a terminal command to sign in; no password is entered here.</p>
+              </form>}
               {provider && (!provider.available || provider.error) && <div className="provider-warning" role="status">{provider.error || `${provider.name} is currently unavailable.`}</div>}
               {accounts.length > 0 ? (
                 <div className="account-grid">

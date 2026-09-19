@@ -32,6 +32,7 @@ describe('App', () => {
     expect(fetchMock).toHaveBeenCalledWith('/api/refresh', expect.objectContaining({ method: 'POST' }))
     expect(screen.getByRole('heading', { name: 'work' })).toBeInTheDocument()
     expect(screen.getByText('Best choice')).toBeInTheDocument()
+    expect(screen.queryByText('Most capacity available')).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Refresh usage' })).toBeInTheDocument()
     expect(screen.queryByText('Account control center')).not.toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: 'Recent sessions' })).not.toBeInTheDocument()
@@ -122,5 +123,43 @@ describe('App', () => {
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3))
     expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/providers/codex/accounts/personal/activate', expect.objectContaining({ method: 'POST' }))
     expect(fetchMock).toHaveBeenNthCalledWith(3, '/api/refresh', expect.objectContaining({ method: 'POST' }))
+  })
+
+  it('creates a profile and presents the browser-login command without collecting credentials', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(json(state))
+      .mockResolvedValueOnce(json({ provider: 'codex', account: 'account-05', command: 'CODEX_HOME=/profiles/account-05 codex login' }, 201))
+      .mockResolvedValueOnce(json(state))
+    render(<App />)
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Add account' }))
+    const nameInput = screen.getByLabelText('New account name')
+    expect(screen.queryByLabelText(/password|token/i)).not.toBeInTheDocument()
+    await userEvent.type(nameInput, 'account-05')
+    await userEvent.click(screen.getByRole('button', { name: 'Create profile' }))
+
+    expect(await screen.findByRole('dialog')).toHaveTextContent('Connect account-05')
+    expect(screen.getByLabelText('Terminal command')).toHaveTextContent('CODEX_HOME=/profiles/account-05 codex login')
+    expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/providers/codex/accounts', expect.objectContaining({
+      method: 'POST',
+      body: JSON.stringify({ account: 'account-05' }),
+    }))
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3))
+  })
+
+  it('keeps a successful profile creation visible when the follow-up refresh fails', async () => {
+    vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(json(state))
+      .mockResolvedValueOnce(json({ provider: 'codex', account: 'account-05', command: 'CODEX_HOME=/profiles/account-05 codex login' }, 201))
+      .mockResolvedValueOnce(json({ detail: 'Refresh is temporarily unavailable' }, 503))
+    render(<App />)
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Add account' }))
+    await userEvent.type(screen.getByLabelText('New account name'), 'account-05')
+    await userEvent.click(screen.getByRole('button', { name: 'Create profile' }))
+
+    expect(await screen.findByRole('dialog')).toHaveTextContent('Connect account-05')
+    expect(await screen.findByRole('alert')).toHaveTextContent('Refresh is temporarily unavailable')
+    expect(screen.queryByText('Could not add the account.')).not.toBeInTheDocument()
   })
 })
