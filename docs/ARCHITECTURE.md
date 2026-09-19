@@ -28,7 +28,7 @@ Provider adapter registry
 ### Frontend
 
 The frontend is a presentation layer. It displays provider and profile names,
-active state, sanitized status, usage summaries, recommendations, and operation
+active state, sanitized status, usage summaries, a suggested profile, and operation
 errors. It must not receive or persist provider credentials. New-session actions
 show a copyable command; the browser does not host a CLI terminal. The API keeps
 session discovery and resume command support, but the dashboard does not list
@@ -213,7 +213,7 @@ route and schema reference for the current build.
 | Method | Route | Result |
 | --- | --- | --- |
 | `GET` | `/api/health` | Service health and version |
-| `GET` | `/api/state` | Providers, cached account status, sessions, recommendation |
+| `GET` | `/api/state` | Providers, cached profile status, sessions, suggested profile |
 | `POST` | `/api/refresh` | Same state shape with live adapter refresh |
 | `POST` | `/api/providers/{provider}/accounts/{account}/activate` | Active selection |
 | `POST` | `/api/providers/{provider}/accounts/{account}/command` | Quoted new/resume command |
@@ -243,7 +243,7 @@ The MVP is not:
 - a multi-user service;
 - a remote account gateway;
 - a secret manager;
-- a provider-limit bypass;
+- a mechanism to bypass provider limits or pool subscriptions;
 - a replacement for backups; or
 - a guarantee of compatibility with undocumented provider internals.
 

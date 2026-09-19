@@ -14,8 +14,8 @@ An adapter owns the provider-specific answer to each of these questions:
 | Discovery | Find valid local profiles under explicitly allowed roots |
 | Identity | Determine authentication status without returning secrets |
 | Selection | Persist the active profile atomically |
-| Usage | Obtain and normalize available capacity information |
-| Recommendation | Supply comparable inputs without treating unknown as free |
+| Usage | Obtain and normalize provider status information without treating unknown as available |
+| Profile suggestion | Supply comparable inputs for a local suggested-profile display |
 | Command | Prepare a strictly validated, safely quoted user-facing command |
 | Continuity | Identify session files, indexes, locks, and snapshots |
 | Migration | Reconcile continuity state safely and repeatably |

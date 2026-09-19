@@ -391,7 +391,7 @@ def main() -> int:
                 summary_label = f"Switching to {switching_account}…"
             else:
                 summary_label = (
-                    f"Best available: {best.get('id')}"
+                    f"Available profile: {best.get('id')}"
                     if best
                     else "No account currently available"
                 )

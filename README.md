@@ -92,8 +92,12 @@ For the recommended Linux desktop mode, also install the distribution packages
 for GTK 3, WebKit2GTK 4.1, and Ayatana AppIndicator3. They are system runtime
 dependencies; AgentHop does not install them into its Python environment.
 
-AgentHop does not create accounts or bypass provider limits. Each account must be
-legitimate and used in accordance with the provider's terms.
+AgentHop is a local profile and continuity manager. It does not create accounts,
+combine or pool subscriptions, bypass limits, or determine whether an account
+setup or use complies with a provider's policies. Use only accounts you are
+authorized to use and follow the provider's terms. For OpenAI services, review
+the [Terms of Use](https://openai.com/policies/terms-of-use/) and the [account
+switching help article](https://help.openai.com/en/articles/20001068).
 
 ## Quickstart
 
@@ -107,8 +111,8 @@ python3 -m venv .venv
 
 This rebuilds the dashboard when its source has changed, starts a loopback-only
 backend, and stays in the Linux system tray without opening a dashboard window.
-Click the tray icon to see available accounts, their blocked/unblock state, and
-the best available option; choose an enabled account there to switch directly.
+Click the tray icon to see available profiles and their visible status/reset
+information. Choose an enabled profile there to switch directly.
 Use **Open dashboard…** only for detail, onboarding, or a new-session command.
 Running the launcher a second time opens the existing dashboard instead of
 starting another backend. The browser UI never receives credentials. The
@@ -205,7 +209,7 @@ The MVP routes are:
 | Method | Route | Purpose |
 | --- | --- | --- |
 | `GET` | `/api/health` | Check service version and health |
-| `GET` | `/api/state` | List providers, accounts, sessions, and recommendation |
+| `GET` | `/api/state` | List providers, profiles, sessions, and a suggested profile |
 | `POST` | `/api/refresh` | Refresh account and usage data through adapters |
 | `POST` | `/api/providers/{provider}/accounts/{account}/activate` | Select an account |
 | `POST` | `/api/providers/{provider}/accounts/{account}/command` | Prepare a new/resume shell command |

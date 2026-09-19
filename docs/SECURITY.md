@@ -19,6 +19,16 @@ The MVP assumes:
 It is not designed for internet exposure, shared servers, containers with
 untrusted tenants, or multiple mutually untrusted users.
 
+## Provider-policy boundary
+
+AgentHop manages local profile selection and continuity only. It does not create
+accounts, combine or pool subscriptions, bypass provider restrictions, or make a
+policy determination about an account setup or use. Operators are responsible
+for using only accounts they are authorized to use and for following applicable
+provider terms. For OpenAI services, review the [Terms of
+Use](https://openai.com/policies/terms-of-use/) and [account-switching
+help](https://help.openai.com/en/articles/20001068).
+
 ## Assets
 
 - Provider credentials and refresh tokens.

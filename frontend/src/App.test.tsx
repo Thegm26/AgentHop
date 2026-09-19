@@ -11,7 +11,7 @@ const state: AgentHopState = {
     { provider: 'codex', id: 'personal', active: false, authenticated: true, duplicate: false, usage: { fiveHourUsed: 7, weeklyUsed: 19, status: 'ready' } },
   ],
   sessions: [{ provider: 'codex', id: 'session-1', title: 'Build account switcher', updatedAt: Math.floor(Date.now() / 1000) }],
-  recommendation: { provider: 'codex', account: 'personal', reason: 'Most capacity available' },
+  recommendation: { provider: 'codex', account: 'personal', reason: 'Available profile' },
 }
 
 function json(value: unknown, status = 200) {
@@ -24,7 +24,7 @@ describe('App', () => {
     vi.restoreAllMocks()
   })
 
-  it('shows accounts, recommendation, and usage without a session list', async () => {
+  it('shows accounts, a suggested profile, and usage without a session list', async () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(json(state))
     render(<App />)
 
@@ -34,8 +34,8 @@ describe('App', () => {
     expect(screen.getByRole('link', { name: 'AgentHop home' }).querySelector('img')).toBeNull()
     expect(fetchMock).toHaveBeenCalledWith('/api/refresh', expect.objectContaining({ method: 'POST' }))
     expect(screen.getByRole('heading', { name: 'work' })).toBeInTheDocument()
-    expect(screen.getByText('Best choice')).toBeInTheDocument()
-    expect(screen.queryByText('Most capacity available')).not.toBeInTheDocument()
+    expect(screen.getByText('Suggested profile')).toBeInTheDocument()
+    expect(screen.queryByText('Available profile')).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Refresh usage' })).toBeInTheDocument()
     expect(screen.queryByText('Account control center')).not.toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: 'Recent sessions' })).not.toBeInTheDocument()

@@ -49,7 +49,7 @@ export function AccountCard({ account, recommended, busy, disabled, onActivate, 
           <div className="account-name-row">
             <h3>{account.id}</h3>
             {account.active && <span className="pill pill--active"><span /> Active</span>}
-            {recommended && <span className="pill pill--recommended"><SparkIcon /> Best choice</span>}
+            {recommended && <span className="pill pill--recommended"><SparkIcon /> Suggested profile</span>}
           </div>
           <p>{account.usage?.plan || (account.authenticated ? 'Connected account' : 'Authentication required')}</p>
         </div>

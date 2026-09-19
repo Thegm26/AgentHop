@@ -8,36 +8,36 @@ cover_image: "https://raw.githubusercontent.com/Thegm26/AgentHop/main/docs/asset
 
 # I built AgentHop because switching Codex accounts kept breaking my flow
 
-*The account making the next request should be easy to change. The context that got you here should not disappear with it.*
+*Changing the local profile for a request should be easy. The context that got you here should not disappear with it.*
 
-I use several legitimate AI subscriptions and local Codex accounts. When I am working through a long coding task, moving between them can be practical: one account may be near a rolling limit while another is available. That sounds like a tiny workflow detail. In practice, it kept interrupting the part of the job where I most needed momentum.
+I use separate, legitimate Codex profiles for distinct contexts: personal work, a client workspace, and experiments that should not inherit the same local setup. Keeping those contexts separate is useful; repeatedly navigating between them was not. Each time I needed a different profile, I would log out, change the active setup, reload Codex, and authenticate again.
 
-Before I had any tooling, a switch meant logging out, changing the active setup, reloading Codex, and authenticating again. It was repetitive, slow, and disruptive. Worse, it pulled me out of the task just to answer a basic operational question: *which account should I use next?*
+That routine was repetitive, slow, and disruptive. Worse, it pulled me out of the task just to answer ordinary operational questions: *which profile is selected? Is it signed in? What status did Codex last report?*
 
 ## First, I made switching less painful
 
-My first answer was a small CLI script. It gave each account an isolated local profile and let me switch much faster than the manual logout/reload cycle. That solved the most visible friction: I could change the identity used by the CLI without typing through the whole setup again.
+My first answer was a small CLI script. It gave each context an isolated local profile and made the normal sign-out/re-auth cycle unnecessary for routine switching. That solved the most visible friction: I could select the identity and configuration used by the CLI without redoing the entire setup.
 
 But it only made the switch faster. It did not make the decision easier.
 
-When you are deep in work, a list of profile names is not enough. I still could not quickly see which account was ready, which one was close to a 5-hour limit, which had exhausted its weekly window, when a blocked account would actually become usable, or which available account was the sensible next choice. I could ask the CLI for status, but translating several independent windows into a decision was still manual and easy to get wrong.
+When you are deep in work, a list of profile names is not enough. I still could not quickly see which profile was signed in, which one Codex reported as ready, close, or blocked, and when a reported reset would occur. I could ask the CLI for status, but checking several isolated profiles by hand was still manual and easy to get wrong.
 
-So the script became a dashboard. AgentHop reads the local, supported status for each profile and turns it into a small decision surface: **ready**, **close**, or **blocked**; readable reset times; and an ordering that puts usable accounts first. If more than one limit is exhausted, the account stays blocked until the later reset—because it is not truly available until every exhausted window clears.
+So the script became a dashboard. AgentHop reads the local, supported status for each profile and turns it into a small operational view: **ready**, **close**, or **blocked**, plus readable reset times. Profiles that are currently usable appear first; a blocked profile remains muted until the provider reports it as usable again.
 
-That was the first payoff. Instead of bouncing between accounts and terminal output, I could refresh once and decide whether to switch or wait. But a dashboard still asks you to open a dashboard. For a decision that happens several times in a day, that is one window too many.
+That was the first payoff. Instead of bouncing between profile directories and terminal output, I could refresh once and see the current local picture. But a dashboard still asks you to open a dashboard. For a check that happens several times in a day, that is one window too many.
 
 ## The control surface moved to the tray
 
 Now AgentHop starts quietly in the Linux system tray. Clicking its icon gives me
-the short list I actually need: the best available account, ready and close
-accounts first, then blocked accounts ordered by their real expected-unblock
-time. A blocked account stays muted; an available entry can be clicked to switch
-directly. The full dashboard is still there for onboarding, inspecting limits,
-or preparing a new command, but it is no longer a mandatory stop between work
-and the next account.
+the short list I actually need: the active profile, a suggested available
+profile when one is reported, then profiles grouped by current status. A blocked
+profile stays muted; an enabled entry can be clicked to switch directly. The
+full dashboard is still there for onboarding, inspecting status, or preparing a
+new command, but it is no longer a mandatory stop between work and the profile
+I need.
 
 That distinction matters to me. The tray is for the frequent, low-friction
-question—*which account should I use right now?* The dashboard is for the less
+question—*which profile do I need right now?* The dashboard is for the less
 frequent, higher-context tasks—*add an identity, inspect the details, or start a
 new session.*
 
@@ -51,9 +51,13 @@ That discovery changed the project. The local profile directory was doing two jo
 
 The actual product question became more interesting: how do you keep identity isolated without turning every account switch into a separate universe?
 
-[AgentHop](https://github.com/Thegm26/AgentHop) is the MVP that came out of that question. It is a local-first dashboard for managing AI coding CLI accounts while keeping resumable work close at hand. It separates account identity from continuity, shows the decision-relevant usage state, and prepares the next Codex command without treating an account change as a new project.
+[AgentHop](https://github.com/Thegm26/AgentHop) is the MVP that came out of that question. It is a local-first dashboard for managing AI coding CLI profiles while keeping resumable work close at hand. It separates profile identity from continuity, shows the status Codex makes available, and prepares the next Codex command without treating a profile change as a new project.
 
-> **Independent project:** AgentHop is unofficial, local software. It is not affiliated with, endorsed by, or supported by OpenAI. It does not create accounts, bypass limits, or expose credentials to the browser.
+> **Independent project:** AgentHop is unofficial, local software. It is not affiliated with, endorsed by, or supported by OpenAI. It does not create accounts, combine subscriptions, bypass limits, or expose credentials to the browser. It does not decide whether any account setup or use complies with provider policy.
+
+Use only accounts you are authorized to use and follow the provider's terms. For
+OpenAI services, see the current [Terms of Use](https://openai.com/policies/terms-of-use/)
+and [account-switching help](https://help.openai.com/en/articles/20001068).
 
 ## The architecture: identity is not continuity
 
@@ -76,16 +80,16 @@ This is the difference between "switch who is making the next request" and "swit
 AgentHop currently ships with an OpenAI Codex adapter and a local React + FastAPI control surface. It can:
 
 - discover the default and named local profiles;
-- show account state as **ready**, **close**, or **blocked**, rather than hiding two limits behind one misleading percentage;
-- show human-readable 5-hour and weekly reset times;
-- mute blocked accounts and order them by when they are expected to become usable; and
-- create a new isolated profile, guide the user through the normal terminal sign-in, select an account, and prepare a new or resume command.
+- show profile state as **ready**, **close**, or **blocked**, rather than hiding two independent status windows behind one percentage;
+- show human-readable 5-hour and weekly reset times when the provider supplies them;
+- mute profiles the provider reports as blocked and group profiles by their current status; and
+- create a new isolated profile, guide the user through the normal terminal sign-in, select a profile, and prepare a new or resume command.
 
-The ordering is intentional. Accounts that can be used now appear first. If an account is blocked by more than one window, its expected-unblock time is the later reset: every exhausted window must clear before it is genuinely usable.
+The ordering is operational, not a policy judgment. Profiles reported as usable appear first. When a profile has more than one blocked window, AgentHop presents the later reset as its expected unblock time because that is the latest status change it can show.
 
-The practical sequence is refresh, choose a usable account, reconcile shared state when required, then copy the next command.
+The practical sequence is refresh, choose the profile appropriate for the work, reconcile shared state when required, then copy the next command.
 
-![Diagram: refresh account state, choose a usable account, reconcile continuity when needed, then copy a new or resume command.](https://raw.githubusercontent.com/Thegm26/AgentHop/main/docs/assets/account-flow-diagram.png)
+![Diagram: refresh profile status, choose the appropriate profile, reconcile continuity when needed, then copy a new or resume command.](https://raw.githubusercontent.com/Thegm26/AgentHop/main/docs/assets/account-flow-diagram.png)
 
 The browser sees sanitized profile names, status, reset information, and command results. It never needs the contents of an authentication file.
 
@@ -135,7 +139,7 @@ python3 -m venv .venv
 ```
 
 That starts AgentHop in the local Linux system tray; it does not open a window.
-Click the icon to refresh and select an available account directly. Choose
+Click the icon to refresh and select an enabled profile directly. Choose
 **Open dashboard…** when you need the full view, or run the launcher again to
 reveal the existing dashboard. The launcher builds the React UI when needed and
 keeps the backend on loopback.
@@ -159,7 +163,7 @@ For the full setup, API, and security notes, see the [README](https://github.com
 
 This is a local, single-user MVP. It is deliberately narrow:
 
-- It does not bypass provider limits or automate account creation.
+- It does not create accounts, combine subscriptions, bypass provider limits, or determine policy compliance.
 - It does not send passwords or tokens to the dashboard.
 - It is not intended for remote or multi-user deployment without authentication, authorization, CSRF protections, TLS, and a fuller threat model.
 - It does not claim every future provider is supported; Codex is the first working adapter.
@@ -172,7 +176,7 @@ The technical question is broader than Codex: where should a developer tool draw
 
 If you manage multiple AI coding CLI profiles, I would especially value feedback on:
 
-- the status model—what would make a "switch now vs. wait" decision clearer;
+- the status model—what would make local profile status clearer;
 - session migrations—what failure modes deserve more guardrails; and
 - the next provider adapter worth supporting.
 

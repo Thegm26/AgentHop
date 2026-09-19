@@ -171,7 +171,7 @@ export default function App() {
             <section className="hero">
               <div>
                 <h1>Pick up where you left off.</h1>
-                <p>Move between accounts without losing the thread. AgentHop keeps your sessions close and your limits visible.</p>
+                <p>Move between profiles without losing the thread. AgentHop keeps your sessions close and your account status visible.</p>
               </div>
               <div className="hero-illustration">
                 <img src="/assets/agenthop-mascot.png" width="1254" height="1254" alt="AgentHop mascot meditating while companion agents work around it" />

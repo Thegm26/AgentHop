@@ -68,9 +68,9 @@ class AccountService:
             recommendation = RecommendationModel(
                 provider=chosen.provider,
                 account=chosen.id,
-                reason="most available known capacity"
+                reason="available profile"
                 if chosen.usage
-                else "authenticated account",
+                else "authenticated profile",
             )
         return StateModel(
             providers=provider_models,
