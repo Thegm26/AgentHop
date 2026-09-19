@@ -9,6 +9,7 @@ import { sortAccountsByUsability } from './accountOrdering'
 import { accountCategories } from './accountCategories'
 
 type ModalState = { command: string; title: string; description?: string } | null
+type RefreshOptions = { showSpinner?: boolean }
 
 function LoadingView() {
   return (
@@ -32,6 +33,8 @@ export default function App() {
   const [newAccount, setNewAccount] = useState('')
   const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null)
   const stateRequest = useRef(0)
+  const refreshPromise = useRef<Promise<void> | null>(null)
+  const operationInProgress = useRef(false)
 
   const applyState = useCallback((next: AgentHopState, requestId: number) => {
     if (requestId !== stateRequest.current) return
@@ -39,22 +42,41 @@ export default function App() {
     setProviderId((current) => next.providers.some((item) => item.id === current) ? current : next.providers[0]?.id ?? '')
   }, [])
 
-  const load = useCallback(async () => {
+  const load = useCallback((options: RefreshOptions = {}) => {
+    if (refreshPromise.current) return refreshPromise.current
     const requestId = ++stateRequest.current
-    setError('')
-    try {
-      const next = await api.refresh()
-      applyState(next, requestId)
-    } catch (reason) {
-      if (requestId === stateRequest.current) setError(reason instanceof Error ? reason.message : 'Could not connect to AgentHop.')
-    }
+    const request = (async () => {
+      if (options.showSpinner) setRefreshing(true)
+      setError('')
+      try {
+        const next = await api.refresh()
+        applyState(next, requestId)
+      } catch (reason) {
+        if (requestId === stateRequest.current) setError(reason instanceof Error ? reason.message : 'Could not connect to AgentHop.')
+      } finally {
+        if (options.showSpinner) setRefreshing(false)
+      }
+    })()
+    refreshPromise.current = request
+    void request.finally(() => {
+      if (refreshPromise.current === request) refreshPromise.current = null
+    })
+    return request
   }, [applyState])
 
-  useEffect(() => { void load() }, [load])
+  useEffect(() => {
+    void load()
+    const interval = window.setInterval(() => {
+      if (document.visibilityState !== 'hidden' && !operationInProgress.current) void load()
+    }, 5_000)
+    return () => {
+      window.clearInterval(interval)
+    }
+  }, [load])
 
   useEffect(() => {
     setSelectedCategoryId(null)
-  }, [providerId, state])
+  }, [providerId])
 
   const recommendedId = state?.recommendation?.provider === providerId ? state.recommendation.account : undefined
   const accounts = useMemo(() => sortAccountsByUsability(state?.accounts.filter((account) => account.provider === providerId) ?? [], recommendedId), [state, providerId, recommendedId])
@@ -65,45 +87,47 @@ export default function App() {
   const provider = state?.providers.find((item) => item.id === providerId)
   const canOnboard = providerId === 'codex' && Boolean(provider?.available) && !provider?.error
 
+  useEffect(() => {
+    if (selectedCategoryId && !selectedCategory) setSelectedCategoryId(null)
+  }, [selectedCategory, selectedCategoryId])
+
   async function refresh() {
-    const requestId = ++stateRequest.current
-    setRefreshing(true)
-    setError('')
-    try {
-      const next = await api.refresh()
-      applyState(next, requestId)
-    } catch (reason) {
-      if (requestId === stateRequest.current) setError(reason instanceof Error ? reason.message : 'Refresh failed.')
-    } finally {
-      setRefreshing(false)
-    }
+    if (operationInProgress.current) return
+    await load({ showSpinner: true })
   }
 
   async function activate(account: Account) {
+    if (operationInProgress.current) return
     const key = `account:${account.provider}:${account.id}`
-    ++stateRequest.current
+    operationInProgress.current = true
     setBusyKey(key)
     setError('')
     try {
+      await refreshPromise.current
       await api.activate(account.provider, account.id)
       await load()
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Could not switch accounts.')
     } finally {
+      operationInProgress.current = false
       setBusyKey((current) => current === key ? '' : current)
     }
   }
 
   async function getCommand(account: Pick<Account, 'provider' | 'id'>) {
+    if (operationInProgress.current) return
     const key = `command:${account.provider}:${account.id}`
+    operationInProgress.current = true
     setBusyKey(key)
     setError('')
     try {
+      await refreshPromise.current
       const result = await api.command(account.provider, account.id, 'new')
       setModal({ command: result.command, title: `New session with ${account.id}` })
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Could not create the command.')
     } finally {
+      operationInProgress.current = false
       setBusyKey((current) => current === key ? '' : current)
     }
   }
@@ -112,13 +136,17 @@ export default function App() {
     event.preventDefault()
     const account = newAccount.trim()
     if (!providerId || !account) return
+    if (operationInProgress.current) return
+    operationInProgress.current = true
     setBusyKey('onboard')
     setError('')
     let result: Awaited<ReturnType<typeof api.onboard>>
     try {
+      await refreshPromise.current
       result = await api.onboard(providerId, account)
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Could not add the account.')
+      operationInProgress.current = false
       setBusyKey('')
       return
     }
@@ -126,6 +154,7 @@ export default function App() {
     setNewAccount('')
     setModal({ command: result.command, title: `Connect ${account}`, description: 'Run this in your terminal and complete the Codex sign-in in your browser. Then return here and click Refresh usage.' })
     await load()
+    operationInProgress.current = false
     setBusyKey('')
   }
 

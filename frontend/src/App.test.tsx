@@ -21,6 +21,7 @@ function json(value: unknown, status = 200) {
 describe('App', () => {
   afterEach(() => {
     cleanup()
+    vi.useRealTimers()
     vi.restoreAllMocks()
   })
 
@@ -76,6 +77,52 @@ describe('App', () => {
 
     expect(screen.getByRole('heading', { name: 'personal' })).toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: 'default' })).not.toBeInTheDocument()
+  })
+
+  it('keeps the selected category open when refreshed state retains it', async () => {
+    const categorizedState = {
+      ...state,
+      accounts: [
+        { provider: 'codex', id: 'default', active: true, authenticated: true, duplicate: false, usage: { plan: 'Plus', status: 'ready' } },
+        { provider: 'codex', id: 'personal', active: false, authenticated: true, duplicate: false, usage: { plan: 'Free', status: 'ready' } },
+      ],
+      recommendation: null,
+    }
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(json(categorizedState))
+    render(<App />)
+
+    await userEvent.click(await screen.findByRole('button', { name: /Plus.*1 account.*1 ready/i }))
+    await userEvent.click(screen.getByRole('button', { name: 'Refresh usage' }))
+
+    expect(await screen.findByRole('heading', { name: 'default' })).toBeInTheDocument()
+    expect(screen.queryByLabelText('Account categories')).not.toBeInTheDocument()
+  })
+
+  it('polls every five seconds without overlapping requests and stops when unmounted', async () => {
+    vi.useFakeTimers()
+    let resolveRefresh: ((response: Response) => void) | undefined
+    const fetchMock = vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(json(state))
+      .mockImplementation(() => new Promise<Response>((resolve) => {
+        resolveRefresh = resolve
+      }))
+    const { unmount } = render(<App />)
+
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(screen.getByRole('button', { name: 'Refresh usage' })).toBeInTheDocument()
+
+    await vi.advanceTimersByTimeAsync(5_000)
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    await vi.advanceTimersByTimeAsync(10_000)
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+
+    resolveRefresh?.(json(state))
+    await vi.advanceTimersByTimeAsync(0)
+
+    unmount()
+    await vi.advanceTimersByTimeAsync(10_000)
+    expect(fetchMock).toHaveBeenCalledTimes(2)
   })
 
   it('does not imply full capacity when live usage is unavailable', async () => {
