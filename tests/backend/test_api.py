@@ -91,6 +91,12 @@ def test_refresh_collects_live_usage() -> None:
     assert response.json()["accounts"][0]["usage"]["fiveHourUsed"] == 25
 
 
+def test_refresh_only_accepts_post() -> None:
+    client, _provider = client_and_provider()
+    response = client.get("/api/refresh")
+    assert response.status_code == 404
+
+
 def test_activate_and_command() -> None:
     client, provider = client_and_provider()
     response = client.post("/api/providers/fake/accounts/work/activate")
@@ -174,3 +180,15 @@ def test_untrusted_host_is_rejected() -> None:
         client.get("/api/health", headers={"Host": "attacker.example"}).status_code
         == 400
     )
+
+
+def test_built_frontend_is_served_without_intercepting_api(tmp_path, monkeypatch) -> None:
+    dist = tmp_path / "dist"
+    dist.mkdir()
+    (dist / "index.html").write_text("<html>desktop app</html>")
+    monkeypatch.setenv("AGENTHOP_FRONTEND_DIST", str(dist))
+    client = TestClient(create_app(AccountService([FakeProvider()])))
+
+    assert client.get("/").text == "<html>desktop app</html>"
+    assert client.get("/nested/route").text == "<html>desktop app</html>"
+    assert client.get("/api/health").json()["status"] == "ok"

@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+import os
+from pathlib import Path
 import re
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
+from fastapi.responses import FileResponse
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 
 from agenthop import __version__
 from agenthop.models import (
@@ -22,6 +26,18 @@ from agenthop.providers.codex import CodexAdapter
 from agenthop.service import AccountService
 
 LOCAL_ORIGIN_RE = re.compile(r"^https?://(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$")
+
+
+def frontend_dist() -> Path | None:
+    """Return a built frontend without relying on the current working directory."""
+    configured = os.environ.get("AGENTHOP_FRONTEND_DIST")
+    candidates = ([Path(configured)] if configured else []) + [
+        Path(__file__).resolve().parents[2] / "frontend" / "dist",
+    ]
+    for candidate in candidates:
+        if (candidate / "index.html").is_file():
+            return candidate
+    return None
 
 
 def create_app(service: AccountService | None = None) -> FastAPI:
@@ -49,6 +65,10 @@ def create_app(service: AccountService | None = None) -> FastAPI:
 
     def current_service() -> AccountService:
         return app.state.account_service
+
+    dist = frontend_dist()
+    if dist and (dist / "assets").is_dir():
+        app.mount("/assets", StaticFiles(directory=dist / "assets"), name="assets")
 
     @app.get("/api/health", response_model=HealthResponse)
     def health() -> HealthResponse:
@@ -131,6 +151,18 @@ def create_app(service: AccountService | None = None) -> FastAPI:
                 status_code=500, detail=f"command preparation failed: {exc}"
             ) from exc
         return CommandResponse(command=value)
+
+    if dist:
+
+        @app.get("/{path:path}", include_in_schema=False)
+        def frontend(path: str) -> FileResponse:
+            # API routes are defined above; this is deliberately only the SPA fallback.
+            if path.startswith("api/"):
+                raise HTTPException(status_code=404, detail="API route not found")
+            requested = (dist / path).resolve()
+            if path and requested.is_file() and requested.is_relative_to(dist):
+                return FileResponse(requested)
+            return FileResponse(dist / "index.html")
 
     return app
 
