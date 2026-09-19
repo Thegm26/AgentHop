@@ -1,0 +1,9 @@
+%%{init: {'themeVariables': {'fontSize': '28px'}, 'flowchart': {'nodeSpacing': 50, 'rankSpacing': 80}} }%%
+flowchart LR
+  R[Refresh local account state] --> S{Account usable?}
+  S -->|Yes| U[Show first: ready or close]
+  S -->|No| B[Grey the card and calculate expected unblock]
+  U --> P[Choose account]
+  P --> M[Reconcile continuity state if needed]
+  M --> C[Copy a safe new or resume command]
+  B --> W[Wait until the required reset]

@@ -77,8 +77,9 @@ and prepares a safely quoted command for the user to run. The MVP does not run a
 interactive Codex session inside the browser.
 
 For a deeper treatment, read [Architecture](docs/ARCHITECTURE.md), [Provider
-adapters](docs/PROVIDER_ADAPTERS.md), and the long-form [project
-article](docs/ARTICLE.md).
+adapters](docs/PROVIDER_ADAPTERS.md), and the DEV.to-ready [project
+article](docs/ARTICLE.md). Its companion [publishing checklist](docs/DEVTO_PUBLISHING.md)
+includes the cover image and final upload steps.
 
 ## Requirements
 

@@ -1,0 +1,9 @@
+%%{init: {'themeVariables': {'fontSize': '28px'}, 'flowchart': {'nodeSpacing': 50, 'rankSpacing': 80}} }%%
+flowchart LR
+  A[Stop active sessions<br/>and back up] --> B[Prepare command and reconcile<br/>missing session state]
+  B --> C{Collision?}
+  C -->|Same bytes| D[Reuse existing file]
+  C -->|Different bytes| E[Preserve both with<br/>a conflict suffix]
+  D --> F[Backfill session index]
+  E --> F
+  F --> G[Launch with shared continuity]
