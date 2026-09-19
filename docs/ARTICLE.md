@@ -1,26 +1,46 @@
 ---
-title: "AgentHop: switch AI coding accounts without losing your context"
+title: "I built AgentHop because switching Codex accounts kept breaking my flow"
 published: false
-description: "A local-first dashboard that separates AI CLI identity from resumable work, so switching accounts does not mean starting over."
+description: "The story of a local-first dashboard that makes multiple Codex CLI accounts visible while keeping resumable work continuous."
 tags: opensource, react, python, productivity
 cover_image: "https://raw.githubusercontent.com/Thegm26/AgentHop/main/docs/assets/agenthop-devto-cover.png"
 ---
 
-# AgentHop: switch AI coding accounts without losing your context
+# I built AgentHop because switching Codex accounts kept breaking my flow
 
-*You should be able to change the account making the next request without throwing away the context that got you here.*
+*The account making the next request should be easy to change. The context that got you here should not disappear with it.*
 
-That is the small, stubborn problem behind [AgentHop](https://github.com/Thegm26/AgentHop): a local-first dashboard for managing AI coding CLI accounts while keeping resumable work close at hand.
+I use several legitimate AI subscriptions and local Codex accounts. When I am working through a long coding task, moving between them can be practical: one account may be near a rolling limit while another is available. That sounds like a tiny workflow detail. In practice, it kept interrupting the part of the job where I most needed momentum.
 
-It began with a script that did exactly one thing well: switch an AI coding CLI between isolated account directories. Then came the awkward moment: after a switch, `resume` could no longer find the conversation containing the current task, trade-offs, and unfinished work.
+Before I had any tooling, a switch meant logging out, changing the active setup, reloading Codex, and authenticating again. It was repetitive, slow, and disruptive. Worse, it pulled me out of the task just to answer a basic operational question: *which account should I use next?*
 
-The login had changed correctly. The memory had changed with it.
+## First, I made switching less painful
 
-AgentHop is the MVP I wanted instead: see locally available accounts, their sanitized usage state and reset times, choose a usable one, and prepare the next Codex command without treating an account change as a new project.
+My first answer was a small CLI script. It gave each account an isolated local profile and let me switch much faster than the manual logout/reload cycle. That solved the most visible friction: I could change the identity used by the CLI without typing through the whole setup again.
+
+But it only made the switch faster. It did not make the decision easier.
+
+When you are deep in work, a list of profile names is not enough. I still could not quickly see which account was ready, which one was close to a 5-hour limit, which had exhausted its weekly window, when a blocked account would actually become usable, or which available account was the sensible next choice. I could ask the CLI for status, but translating several independent windows into a decision was still manual and easy to get wrong.
+
+So the script became a dashboard. AgentHop reads the local, supported status for each profile and turns it into a small decision surface: **ready**, **close**, or **blocked**; readable reset times; and an ordering that puts usable accounts first. If more than one limit is exhausted, the account stays blocked until the later reset—because it is not truly available until every exhausted window clears.
+
+That was the first payoff. Instead of bouncing between accounts and terminal output, I could refresh once and decide whether to switch or wait.
+
+## Then I found the problem that mattered more
+
+The first time I switched profiles and tried to continue a real task, I expected to run `resume` and pick up the conversation. Instead, the resume list looked empty.
+
+The account switch had worked. My working memory had not followed me.
+
+That discovery changed the project. The local profile directory was doing two jobs at once: it held account-specific identity, but it also held the transcripts, indexes, snapshots, and other state that made a session discoverable. Pointing `CODEX_HOME` at a new profile did not just choose a different account; it could make the CLI look at a different history.
+
+The actual product question became more interesting: how do you keep identity isolated without turning every account switch into a separate universe?
+
+[AgentHop](https://github.com/Thegm26/AgentHop) is the MVP that came out of that question. It is a local-first dashboard for managing AI coding CLI accounts while keeping resumable work close at hand. It separates account identity from continuity, shows the decision-relevant usage state, and prepares the next Codex command without treating an account change as a new project.
 
 > **Independent project:** AgentHop is unofficial, local software. It is not affiliated with, endorsed by, or supported by OpenAI. It does not create accounts, bypass limits, or expose credentials to the browser.
 
-## The problem is not account switching. It is state coupling.
+## The architecture: identity is not continuity
 
 Most quick account switchers point a CLI at a different home directory. That works for isolated credentials, but a home directory often contains much more: configuration, transcripts, archived sessions, SQLite indexes, locks, and snapshots. Change the whole directory and you may change all of those at once.
 
