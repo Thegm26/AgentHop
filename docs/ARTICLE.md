@@ -22,7 +22,7 @@ But it only made the switch faster. It did not make the decision easier.
 
 When you are deep in work, a list of profile names is not enough. I still could not quickly see which profile was signed in, which one Codex reported as ready, close, or blocked, and when a reported reset would occur. I could ask the CLI for status, but checking several isolated profiles by hand was still manual and easy to get wrong.
 
-![Terminal showing AgentHop's CLI profile-status output for several local Codex profiles, including their active state and reset information.](https://raw.githubusercontent.com/Thegm26/AgentHop/main/docs/assets/agenthop-cli-profile-status.gif)
+![Terminal showing AgentHop's CLI profile-status output for several local Codex profiles, including their active state and reset information.](https://raw.githubusercontent.com/Thegm26/AgentHop/main/docs/assets/agenthop-cli-profile-status-readable.gif)
 
 *AgentHop's CLI makes each local profile's current status visible at a glance.*
 
@@ -40,12 +40,16 @@ full dashboard is still there for onboarding, inspecting status, or preparing a
 new command, but it is no longer a mandatory stop between work and the profile
 I need.
 
+![AgentHop dashboard showing account status cards, remaining 5-hour and weekly usage, reset times, and the active profile.](https://raw.githubusercontent.com/Thegm26/AgentHop/main/docs/assets/agenthop-dashboard-account-status.png)
+
+*The dashboard keeps the fuller account picture available when a quick tray action is not enough.*
+
 That distinction matters to me. The tray is for the frequent, low-friction
 question—*which profile do I need right now?* The dashboard is for the less
 frequent, higher-context tasks—*add an identity, inspect the details, or start a
 new session.*
 
-![AgentHop workflow moving from CLI profile status to the Linux tray menu and then the dashboard, where an enabled profile can be selected.](https://raw.githubusercontent.com/Thegm26/AgentHop/main/docs/assets/agenthop-cli-to-tray-dashboard-workflow.gif)
+![AgentHop workflow moving from CLI profile status to the Linux tray menu and then the dashboard, where an enabled profile can be selected.](https://raw.githubusercontent.com/Thegm26/AgentHop/main/docs/assets/agenthop-cli-to-tray-dashboard-readable.gif)
 
 *From CLI status to a tray action and the full dashboard without losing the operational context.*
 
@@ -143,40 +147,34 @@ cd AgentHop
 
 python3 -m venv .venv
 .venv/bin/pip install -e '.[dev]'
+npm --prefix frontend ci
 ./scripts/desktop.sh
 ```
 
-That starts AgentHop in the local Linux system tray; it does not open a window.
-Click the icon to refresh and select an enabled profile directly. Choose
-**Open dashboard…** when you need the full view, or run the launcher again to
-reveal the existing dashboard. The launcher builds the React UI when needed and
-keeps the backend on loopback.
+This repository launcher starts AgentHop in the local Linux system tray and
+builds the dashboard from the installed frontend dependencies. Click the icon to
+refresh or switch an enabled profile; choose **Open dashboard…** for the full
+view. The launcher keeps the backend on loopback.
 
-For frontend development, use another terminal:
+For frontend development only, use another terminal:
 
 ```bash
 cd frontend
-npm install
 npm run dev
 ```
 
 Click **Add account**, choose a local profile name, copy the displayed sign-in
 command, and complete the normal provider login in your browser. Then return to
-AgentHop and choose **Refresh usage**. The app deliberately shows new-session
-commands for review rather than executing a shell for you.
-
-For the full setup, API, and security notes, see the [README](https://github.com/Thegm26/AgentHop#readme).
+AgentHop and choose **Refresh usage**. The app shows commands for review rather
+than running a shell for you. For desktop installation, APIs, and security
+details, see the [README](https://github.com/Thegm26/AgentHop#readme).
 
 ## What this is—and what it is not
 
-This is a local, single-user MVP. It is deliberately narrow:
-
-- It does not create accounts, combine subscriptions, bypass provider limits, or determine policy compliance.
-- It does not send passwords or tokens to the dashboard.
-- It is not intended for remote or multi-user deployment without authentication, authorization, CSRF protections, TLS, and a fuller threat model.
-- It does not claim every future provider is supported; Codex is the first working adapter.
-
-Local-only is a product decision as much as a security decision. The backend binds to loopback by default, validates local hosts and browser origins, keeps profile paths constrained to known roots, and avoids committing auth files, databases, and session rollouts. Those checks are helpful boundaries, not a substitute for real authentication on a networked service.
+This is a local, single-user MVP: it does not create accounts, combine
+subscriptions, bypass provider limits, or send credentials to the dashboard.
+It is not a remote or multi-user service, and Codex is its first working
+adapter. See the README for the complete security and deployment notes.
 
 ## The part I would love feedback on
 
