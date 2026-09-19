@@ -11,7 +11,7 @@
     "node": ">=18.19"
   },
   "bin": {
-    "agenthop": "./bin/agenthop.js"
+    "agenthop": "bin/agenthop.js"
   },
   "files": [
     "backend",

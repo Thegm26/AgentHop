@@ -19,7 +19,7 @@ const failures = requiredFiles
 if (metadata.name !== "agenthop") {
   failures.push("package name must be agenthop");
 }
-if (metadata.bin?.agenthop !== "./bin/agenthop.js") {
+if (metadata.bin?.agenthop !== "bin/agenthop.js") {
   failures.push("package must expose the agenthop launcher");
 }
 if (!metadata.os?.includes("linux")) {
