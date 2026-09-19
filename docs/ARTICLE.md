@@ -22,6 +22,10 @@ But it only made the switch faster. It did not make the decision easier.
 
 When you are deep in work, a list of profile names is not enough. I still could not quickly see which profile was signed in, which one Codex reported as ready, close, or blocked, and when a reported reset would occur. I could ask the CLI for status, but checking several isolated profiles by hand was still manual and easy to get wrong.
 
+![Terminal showing AgentHop's CLI profile-status output for several local Codex profiles, including their active state and reset information.](https://raw.githubusercontent.com/Thegm26/AgentHop/main/docs/assets/agenthop-cli-profile-status.gif)
+
+*AgentHop's CLI makes each local profile's current status visible at a glance.*
+
 So the script became a dashboard. AgentHop reads the local, supported status for each profile and turns it into a small operational view: **ready**, **close**, or **blocked**, plus readable reset times. Profiles that are currently usable appear first; a blocked profile remains muted until the provider reports it as usable again.
 
 That was the first payoff. Instead of bouncing between profile directories and terminal output, I could refresh once and see the current local picture. But a dashboard still asks you to open a dashboard. For a check that happens several times in a day, that is one window too many.
@@ -40,6 +44,10 @@ That distinction matters to me. The tray is for the frequent, low-friction
 question—*which profile do I need right now?* The dashboard is for the less
 frequent, higher-context tasks—*add an identity, inspect the details, or start a
 new session.*
+
+![AgentHop workflow moving from CLI profile status to the Linux tray menu and then the dashboard, where an enabled profile can be selected.](https://raw.githubusercontent.com/Thegm26/AgentHop/main/docs/assets/agenthop-cli-to-tray-dashboard-workflow.gif)
+
+*From CLI status to a tray action and the full dashboard without losing the operational context.*
 
 ## Then I found the problem that mattered more
 
