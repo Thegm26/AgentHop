@@ -11,6 +11,9 @@ models part of the core application.
 > AgentHop is an independent, unofficial project. It is not affiliated with,
 > endorsed by, or supported by OpenAI.
 
+The dashboard includes the AgentHop mascot artwork: a central meditating agent
+surrounded by companion agents handling the work in progress.
+
 ## The problem
 
 An AI CLI account is more than a login token. A CLI home can also contain

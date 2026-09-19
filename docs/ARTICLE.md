@@ -20,6 +20,11 @@ state**. They deserve different lifecycles.
 AgentHop is an independent, unofficial project and is not affiliated with or
 endorsed by OpenAI.
 
+Its dashboard uses a calm AgentHop mascot: a central agent in meditation, with
+small companion agents around it continuing the practical work. The image is a
+visual metaphor for the product's promise: change accounts without losing the
+thread of an active project.
+
 ## What we wanted
 
 At the human level, the goal was straightforward. When one account is unavailable

@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import { api } from './api'
 import { AccountCard } from './components/AccountCard'
-import { AgentHopMascot } from './components/AgentHopMascot'
 import { CommandModal } from './components/CommandModal'
 import { RefreshIcon, SparkIcon } from './components/Icons'
 import type { Account, AgentHopState } from './types'
@@ -131,7 +130,7 @@ export default function App() {
     <div className="app-shell">
       <header className="topbar">
         <a className="brand" href="#top" aria-label="AgentHop home">
-          <span className="brand-mark"><span /><span /></span>
+          <img className="brand-mark" src="/assets/agenthop-mascot.png" width="1254" height="1254" alt="" aria-hidden="true" />
           <span>Agent<span>Hop</span></span>
         </a>
         <div className="topbar-actions">
@@ -175,7 +174,9 @@ export default function App() {
                 <h1>Pick up where you left off.</h1>
                 <p>Move between accounts without losing the thread. AgentHop keeps your sessions close and your limits visible.</p>
               </div>
-              <div className="hero-illustration" aria-hidden="true"><AgentHopMascot /></div>
+              <div className="hero-illustration">
+                <img src="/assets/agenthop-mascot.png" width="1254" height="1254" alt="AgentHop mascot meditating while companion agents work around it" />
+              </div>
             </section>
 
             <section aria-labelledby="accounts-heading">

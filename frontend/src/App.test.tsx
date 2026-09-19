@@ -29,6 +29,8 @@ describe('App', () => {
     render(<App />)
 
     expect(await screen.findByRole('heading', { name: 'Pick up where you left off.' })).toBeInTheDocument()
+    expect(screen.getByRole('img', { name: 'AgentHop mascot meditating while companion agents work around it' })).toHaveAttribute('src', '/assets/agenthop-mascot.png')
+    expect(screen.getByRole('link', { name: 'AgentHop home' }).querySelector('img')).toHaveAttribute('src', '/assets/agenthop-mascot.png')
     expect(fetchMock).toHaveBeenCalledWith('/api/refresh', expect.objectContaining({ method: 'POST' }))
     expect(screen.getByRole('heading', { name: 'work' })).toBeInTheDocument()
     expect(screen.getByText('Best choice')).toBeInTheDocument()
