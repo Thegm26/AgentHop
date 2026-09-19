@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { ArrowIcon, ClockIcon, SparkIcon } from './Icons'
 import type { Account } from '../types'
+import { expectedUnblockAt, fromEpoch } from '../accountOrdering'
 
 interface Props {
   account: Account
@@ -9,10 +10,6 @@ interface Props {
   disabled: boolean
   onActivate: (account: Account) => void
   onNewSession: (account: Account) => void
-}
-
-function fromEpoch(value: number) {
-  return new Date(value < 1_000_000_000_000 ? value * 1000 : value)
 }
 
 function timeUntil(value: number | null | undefined, now: number) {
@@ -27,17 +24,6 @@ function timeUntil(value: number | null | undefined, now: number) {
   if (days > 0) return `in ${days}d ${hours}h`
   if (hours > 0) return `in ${hours}h ${minutes}m`
   return `in ${minutes}m`
-}
-
-function expectedUnblockAt(account: Account) {
-  const usage = account.usage
-  if (!usage) return null
-  const exhausted = [
-    { used: usage.fiveHourUsed, resetsAt: usage.fiveHourResetsAt },
-    { used: usage.weeklyUsed, resetsAt: usage.weeklyResetsAt },
-  ].filter((window) => typeof window.used === 'number' && window.used >= 100)
-  if (exhausted.length === 0 || exhausted.some((window) => window.resetsAt == null || !Number.isFinite(window.resetsAt))) return null
-  return Math.max(...exhausted.map((window) => fromEpoch(window.resetsAt!).getTime()))
 }
 
 export function AccountCard({ account, recommended, busy, disabled, onActivate, onNewSession }: Props) {

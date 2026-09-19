@@ -2,9 +2,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import { api } from './api'
 import { AccountCard } from './components/AccountCard'
+import { AgentHopMascot } from './components/AgentHopMascot'
 import { CommandModal } from './components/CommandModal'
 import { RefreshIcon, SparkIcon } from './components/Icons'
 import type { Account, AgentHopState } from './types'
+import { sortAccountsByUsability } from './accountOrdering'
 
 type ModalState = { command: string; title: string; description?: string } | null
 
@@ -49,8 +51,8 @@ export default function App() {
 
   useEffect(() => { void load() }, [load])
 
-  const accounts = useMemo(() => state?.accounts.filter((account) => account.provider === providerId) ?? [], [state, providerId])
   const recommendedId = state?.recommendation?.provider === providerId ? state.recommendation.account : undefined
+  const accounts = useMemo(() => sortAccountsByUsability(state?.accounts.filter((account) => account.provider === providerId) ?? [], recommendedId), [state, providerId, recommendedId])
   const provider = state?.providers.find((item) => item.id === providerId)
   const canOnboard = providerId === 'codex' && Boolean(provider?.available) && !provider?.error
 
@@ -173,7 +175,7 @@ export default function App() {
                 <h1>Pick up where you left off.</h1>
                 <p>Move between accounts without losing the thread. AgentHop keeps your sessions close and your limits visible.</p>
               </div>
-              <div className="hero-orbit" aria-hidden="true"><span>AH</span><i /><i /><i /></div>
+              <div className="hero-illustration" aria-hidden="true"><AgentHopMascot /></div>
             </section>
 
             <section aria-labelledby="accounts-heading">
