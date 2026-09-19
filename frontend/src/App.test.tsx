@@ -24,7 +24,7 @@ describe('App', () => {
     vi.restoreAllMocks()
   })
 
-  it('shows accounts, recommendation, usage, and recent sessions', async () => {
+  it('shows accounts, recommendation, and usage without a session list', async () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(json(state))
     render(<App />)
 
@@ -32,7 +32,9 @@ describe('App', () => {
     expect(fetchMock).toHaveBeenCalledWith('/api/refresh', expect.objectContaining({ method: 'POST' }))
     expect(screen.getByRole('heading', { name: 'work' })).toBeInTheDocument()
     expect(screen.getByText('Best choice')).toBeInTheDocument()
-    expect(screen.getByText('Build account switcher')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Refresh usage' })).toBeInTheDocument()
+    expect(screen.queryByText('Account control center')).not.toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Recent sessions' })).not.toBeInTheDocument()
     expect(screen.getAllByRole('progressbar')).toHaveLength(4)
     expect(screen.queryByText(/1970/)).not.toBeInTheDocument()
   })
@@ -44,26 +46,52 @@ describe('App', () => {
     }))
     render(<App />)
 
-    expect(await screen.findByRole('img', { name: 'Usage unavailable' })).toHaveTextContent('—')
+    expect(await screen.findByLabelText('Account state: unknown')).toHaveTextContent(/unknown/i)
     expect(screen.queryByRole('progressbar')).not.toBeInTheDocument()
   })
 
-  it('requests a resume command and presents a copyable dialog', async () => {
-    const fetchMock = vi.spyOn(globalThis, 'fetch')
-      .mockResolvedValueOnce(json(state))
-      .mockResolvedValueOnce(json({ command: 'codex-auto resume session-1' }))
+  it('shows account state separately from the 5-hour and weekly limits', async () => {
+    const now = Math.floor(Date.now() / 1000)
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(json({
+      ...state,
+      accounts: [{ provider: 'codex', id: 'work', active: true, authenticated: true, duplicate: false, usage: { fiveHourUsed: 0, fiveHourResetsAt: now + 5 * 3_600 + 30 * 60, weeklyUsed: 100, weeklyResetsAt: now + 2 * 86_400 + 3 * 3_600, status: 'blocked' } }],
+      recommendation: null,
+    }))
     render(<App />)
 
-    const resumeButton = await screen.findByRole('button', { name: /resume/i })
-    await userEvent.click(resumeButton)
+    expect(await screen.findByLabelText('Account state: blocked')).toHaveTextContent(/blocked/i)
+    expect(screen.getByText('5-hour limit')).toBeInTheDocument()
+    expect(screen.getByText('Weekly limit')).toBeInTheDocument()
+    expect(screen.getByText('100% left')).toBeInTheDocument()
+    expect(screen.getByText('0% left')).toBeInTheDocument()
+    expect(screen.getByText('Resets in 5h 30m')).toBeInTheDocument()
+    expect(screen.getByText('Resets in 2d 3h')).toBeInTheDocument()
+    expect(screen.getByText('Expected unblock in 2d 3h')).toBeInTheDocument()
+    expect(screen.queryByLabelText(/percent remaining/)).not.toBeInTheDocument()
+  })
 
-    expect(await screen.findByRole('dialog', { name: 'Resume Build account switcher' })).toHaveTextContent('codex-auto resume session-1')
-    expect(screen.getByRole('button', { name: 'Close command dialog' })).toHaveFocus()
-    expect(fetchMock).toHaveBeenLastCalledWith('/api/providers/codex/accounts/work/command', expect.objectContaining({
-      body: JSON.stringify({ mode: 'resume', sessionId: 'session-1' }),
+  it('uses the 5-hour reset when weekly capacity remains', async () => {
+    const now = Math.floor(Date.now() / 1000)
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(json({
+      ...state,
+      accounts: [{ provider: 'codex', id: 'work', active: true, authenticated: true, duplicate: false, usage: { fiveHourUsed: 100, fiveHourResetsAt: now + 90 * 60, weeklyUsed: 40, weeklyResetsAt: now + 3 * 86_400, status: 'blocked' } }],
+      recommendation: null,
     }))
-    await userEvent.click(screen.getByRole('button', { name: 'Close command dialog' }))
-    expect(resumeButton).toHaveFocus()
+    render(<App />)
+
+    expect(await screen.findByText('Expected unblock in 1h 30m')).toBeInTheDocument()
+  })
+
+  it('waits for the later reset when both limits are exhausted', async () => {
+    const now = Math.floor(Date.now() / 1000)
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(json({
+      ...state,
+      accounts: [{ provider: 'codex', id: 'work', active: true, authenticated: true, duplicate: false, usage: { fiveHourUsed: 100, fiveHourResetsAt: now + 60 * 60, weeklyUsed: 100, weeklyResetsAt: now + 2 * 86_400, status: 'blocked' } }],
+      recommendation: null,
+    }))
+    render(<App />)
+
+    expect(await screen.findByText('Expected unblock in 2d 0h')).toBeInTheDocument()
   })
 
   it('falls back to legacy clipboard copying when the Clipboard API is unavailable', async () => {

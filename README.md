@@ -187,8 +187,10 @@ selected `CODEX_HOME` and shared SQLite home; review and run them in your termin
 Preparing the first command also performs continuity migration, so stop Codex and
 make a backup before doing this with existing profiles.
 
-Reset and session timestamps are integer Unix epochs. The dashboard accepts both
-seconds and milliseconds and displays them in the browser's local timezone.
+Reset and session timestamps are integer Unix epochs. The dashboard accepts reset
+times in seconds or milliseconds and shows how long remains until each reset.
+The API still supports session discovery and resume commands, but the dashboard
+does not display a recent-conversations list.
 
 ## Safe operating model
 
@@ -255,8 +257,8 @@ shows an em dash instead of a percentage when usage is unknown.
 
 Accounts that are unauthenticated, marked duplicate, explicitly disallowed, or
 blocked have their switch/start actions disabled. During a refresh or another
-account operation, account and session actions are temporarily disabled to avoid
-overlapping UI requests.
+account operation, account actions are temporarily disabled to avoid overlapping
+UI requests.
 
 ### A migrated file has `.agenthop-conflict-<hash>` in its name
 

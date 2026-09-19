@@ -25,11 +25,12 @@ Provider adapter registry
 ### Frontend
 
 The frontend is a presentation layer. It displays provider and profile names,
-active state, sanitized status, usage summaries, recommendations, recent sessions,
-and operation errors. It must not receive or persist provider credentials. New and
-resume actions show a copyable command; the browser does not host a CLI terminal.
-It normalizes integer epoch timestamps expressed in seconds or milliseconds and
-renders them in the user's local timezone.
+active state, sanitized status, usage summaries, recommendations, and operation
+errors. It must not receive or persist provider credentials. New-session actions
+show a copyable command; the browser does not host a CLI terminal. The API keeps
+session discovery and resume command support, but the dashboard does not list
+conversation titles. It normalizes reset timestamps expressed in seconds or
+milliseconds and displays relative wait times.
 
 ### Backend
 

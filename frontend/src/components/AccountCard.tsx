@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react'
 import { ArrowIcon, ClockIcon, SparkIcon } from './Icons'
 import type { Account } from '../types'
 
@@ -14,23 +15,45 @@ function fromEpoch(value: number) {
   return new Date(value < 1_000_000_000_000 ? value * 1000 : value)
 }
 
-function resetLabel(value?: number | null) {
-  if (value == null) return 'Reset time unavailable'
+function timeUntil(value: number | null | undefined, now: number) {
+  if (value == null) return null
   const date = fromEpoch(value)
-  if (Number.isNaN(date.getTime())) return 'Reset time unavailable'
-  return `Resets ${new Intl.DateTimeFormat(undefined, { weekday: 'short', hour: 'numeric', minute: '2-digit' }).format(date)}`
+  if (Number.isNaN(date.getTime())) return null
+  const totalMinutes = Math.ceil((date.getTime() - now) / 60_000)
+  if (totalMinutes <= 0) return 'now'
+  const days = Math.floor(totalMinutes / 1_440)
+  const hours = Math.floor((totalMinutes % 1_440) / 60)
+  const minutes = totalMinutes % 60
+  if (days > 0) return `in ${days}d ${hours}h`
+  if (hours > 0) return `in ${hours}h ${minutes}m`
+  return `in ${minutes}m`
+}
+
+function expectedUnblockAt(account: Account) {
+  const usage = account.usage
+  if (!usage) return null
+  const exhausted = [
+    { used: usage.fiveHourUsed, resetsAt: usage.fiveHourResetsAt },
+    { used: usage.weeklyUsed, resetsAt: usage.weeklyResetsAt },
+  ].filter((window) => typeof window.used === 'number' && window.used >= 100)
+  if (exhausted.length === 0 || exhausted.some((window) => window.resetsAt == null || !Number.isFinite(window.resetsAt))) return null
+  return Math.max(...exhausted.map((window) => fromEpoch(window.resetsAt!).getTime()))
 }
 
 export function AccountCard({ account, recommended, busy, disabled, onActivate, onNewSession }: Props) {
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 60_000)
+    return () => window.clearInterval(timer)
+  }, [])
   const windows = [
     { label: '5-hour limit', usedPercent: account.usage?.fiveHourUsed, resetsAt: account.usage?.fiveHourResetsAt },
     { label: 'Weekly limit', usedPercent: account.usage?.weeklyUsed, resetsAt: account.usage?.weeklyResetsAt },
   ].filter((item): item is { label: string; usedPercent: number; resetsAt: number | null | undefined } => typeof item.usedPercent === 'number')
-  const knownUsed = account.usage?.fiveHourUsed ?? account.usage?.weeklyUsed
-  const used = Math.min(100, Math.max(0, knownUsed ?? 0))
-  const remaining = 100 - used
   const unavailable = !account.authenticated || account.duplicate || account.usage?.allowed === false || account.usage?.status === 'blocked'
-  const status = account.usage?.status
+  const status = account.duplicate ? 'duplicate' : !account.authenticated ? 'disconnected' : account.usage?.status ?? 'unknown'
+  const unblockAt = status === 'blocked' ? expectedUnblockAt(account) : null
+  const unblockWait = unblockAt == null ? null : timeUntil(unblockAt, now)
 
   return (
     <article className={`account-card ${account.active ? 'is-active' : ''} status-${status ?? 'unknown'}`}>
@@ -41,12 +64,11 @@ export function AccountCard({ account, recommended, busy, disabled, onActivate, 
             <h3>{account.id}</h3>
             {account.active && <span className="pill pill--active"><span /> Active</span>}
             {recommended && <span className="pill pill--recommended"><SparkIcon /> Best choice</span>}
-            {status && !['ready', 'unknown'].includes(status) && <span className={`pill pill--${status}`}>{status}</span>}
           </div>
           <p>{account.usage?.plan || (account.authenticated ? 'Connected account' : 'Authentication required')}</p>
         </div>
-        <div className={`usage-ring ${knownUsed == null ? 'usage-ring--unknown' : ''}`} style={{ '--usage': `${remaining * 3.6}deg` } as React.CSSProperties} role="img" aria-label={knownUsed == null ? 'Usage unavailable' : `${Math.round(remaining)} percent remaining`}>
-          <div><strong>{knownUsed == null ? '—' : `${Math.round(remaining)}%`}</strong><span>{knownUsed == null ? 'usage' : 'left'}</span></div>
+        <div className={`account-state account-state--${status}`} aria-label={`Account state: ${status}`}>
+          <strong>{status}</strong>
         </div>
       </div>
 
@@ -55,17 +77,20 @@ export function AccountCard({ account, recommended, busy, disabled, onActivate, 
           <div className="usage-empty">{account.usage?.error || 'Usage data hasn’t arrived yet.'}</div>
         ) : windows.map((window) => {
           const percentage = Math.min(100, Math.max(0, window.usedPercent))
+          const resetWait = timeUntil(window.resetsAt, now)
           return (
             <div className="usage-item" key={window.label}>
               <div className="usage-item__labels"><span>{window.label}</span><strong>{Math.round(100 - percentage)}% left</strong></div>
               <div className="progress" role="progressbar" aria-label={`${window.label} usage`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={percentage}>
                 <span style={{ width: `${percentage}%` }} />
               </div>
-              <span className="reset"><ClockIcon /> {resetLabel(window.resetsAt)}</span>
+              <span className="reset" title={window.resetsAt == null ? undefined : fromEpoch(window.resetsAt).toLocaleString()}><ClockIcon /> {resetWait ? `Resets ${resetWait}` : 'Reset time unavailable'}</span>
             </div>
           )
         })}
       </div>
+
+      {status === 'blocked' && <p className="account-unblock"><ClockIcon /> {unblockWait == null ? 'Unblock time unavailable' : unblockWait === 'now' ? 'Reset due; refresh status' : `Expected unblock ${unblockWait}`}</p>}
 
       <div className="account-actions">
         {account.duplicate && <span className="account-warning">Duplicate credentials</span>}

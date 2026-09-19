@@ -154,7 +154,7 @@ AgentHop's intended migration behavior is conservative:
 7. Reconcile the thread index and update rollout paths.
 
 The first request to prepare a new or resumed command is the migration boundary.
-Merely opening the dashboard and listing sessions does not rewrite user state.
+Merely opening the dashboard does not rewrite user state.
 Within one backend process, a lock serializes migrations so two command requests
 cannot merge the same homes concurrently. That lock cannot coordinate another
 AgentHop process or a running Codex process, which is why the operational advice
@@ -231,11 +231,11 @@ TLS, audit controls, and a more formal threat model.
 
 The dashboard also refuses to make every visible account look actionable. It
 disables switch/start controls for unauthenticated, duplicate, provider-disallowed,
-or blocked accounts, and prevents overlapping account/session actions while a
-refresh or operation is in flight. Resume chooses a usable active account first,
-then the recommendation, then another usable account for that provider. Usage and
-session times arrive as integer epochs; the UI handles seconds and milliseconds
-and renders local time.
+or blocked accounts, and prevents overlapping account actions while a refresh or
+operation is in flight. The API still supports resume command preparation, while
+the dashboard focuses on account status and does not expose conversation titles.
+Reset times arrive as integer epochs; the UI handles seconds and milliseconds
+and displays the time remaining.
 
 ## What the dashboard changes—and what it does not
 
