@@ -16,8 +16,8 @@ const failures = requiredFiles
   .filter((path) => !existsSync(join(root, path)))
   .map((path) => `missing required package file: ${path}`);
 
-if (metadata.name !== "agenthop") {
-  failures.push("package name must be agenthop");
+if (metadata.name !== "@thegm26/agenthop") {
+  failures.push("package name must be @thegm26/agenthop");
 }
 if (metadata.bin?.agenthop !== "bin/agenthop.js") {
   failures.push("package must expose the agenthop launcher");

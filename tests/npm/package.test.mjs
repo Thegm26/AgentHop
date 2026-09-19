@@ -11,7 +11,7 @@ execFileSync("npm", ["run", "build"], { stdio: "inherit" });
 execFileSync("node", ["scripts/verify-package.js"], { stdio: "inherit" });
 
 test("npm metadata exposes the Linux launcher", () => {
-  assert.equal(packageMetadata.name, "agenthop");
+  assert.equal(packageMetadata.name, "@thegm26/agenthop");
   assert.equal(packageMetadata.os[0], "linux");
   assert.equal(packageMetadata.bin.agenthop, "bin/agenthop.js");
   assert.equal(packageMetadata.scripts.postinstall, undefined);

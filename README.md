@@ -28,11 +28,11 @@ AgentHop is published as a Linux npm package. Install it globally, then launch
 the tray application:
 
 ```bash
-npm install -g agenthop
+npm install -g @thegm26/agenthop
 agenthop
 ```
 
-`npx agenthop` also works for a temporary install. The first launch creates an
+`npx @thegm26/agenthop` also works for a temporary install. The first launch creates an
 isolated Python runtime under `$XDG_CACHE_HOME/agenthop` (or `~/.cache/agenthop`). It needs Python 3.11+ with venv support,
 Node.js 18.19+, the Codex CLI on `PATH`, and these Linux desktop libraries:
 GTK 3, WebKit2GTK 4.1, and Ayatana AppIndicator3. On Ubuntu 24.04:
@@ -142,11 +142,11 @@ Python backend, desktop launcher, and built frontend. Before publishing, run:
 ```bash
 npm run test:package
 npm pack --dry-run
-npm publish
+npm publish --access public
 ```
 
-Publishing requires an authenticated npm account with permission to publish the
-`agenthop` package. npm will run `prepack` automatically during `npm publish`.
+Publishing requires an authenticated npm account with permission to publish to
+the `@thegm26` scope. npm will run `prepack` automatically during `npm publish`.
 
 ## Further reading
 
