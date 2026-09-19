@@ -64,7 +64,7 @@ def test_activation_is_atomic_and_validated(adapter: CodexAdapter) -> None:
         adapter.activate("../escape")
 
 
-def test_onboard_creates_private_profile_and_returns_quoted_login_command(
+def test_onboard_creates_private_profile_and_returns_portable_login_command(
     adapter: CodexAdapter,
 ) -> None:
     command = adapter.onboard("account-02")
@@ -73,12 +73,14 @@ def test_onboard_creates_private_profile_and_returns_quoted_login_command(
     assert profile.is_dir()
     assert profile.stat().st_mode & 0o777 == 0o700
     assert shlex.split(command) == [
-        f"CODEX_HOME={profile}",
-        "/usr/bin/codex-test",
+        "CODEX_HOME=$HOME/.codex-profiles/account-02",
+        "codex",
         "-c",
         'cli_auth_credentials_store="file"',
         "login",
     ]
+    assert str(adapter.profile_root) not in command
+    assert adapter.binary not in command
     assert not (profile / "auth.json").exists()
     with pytest.raises(DuplicateAccountError, match="already exists"):
         adapter.onboard("account-02")

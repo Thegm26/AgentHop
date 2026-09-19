@@ -8,7 +8,7 @@ const state: AgentHopState = {
   providers: [{ id: 'codex', name: 'Codex', available: true }],
   accounts: [
     { provider: 'codex', id: 'work', active: true, authenticated: true, duplicate: false, usage: { plan: 'Plus', fiveHourUsed: 32, fiveHourResetsAt: 2_000_000_000, weeklyUsed: 61, status: 'ready' } },
-    { provider: 'codex', id: 'personal', active: false, authenticated: true, duplicate: false, usage: { fiveHourUsed: 7, weeklyUsed: 19, status: 'ready' } },
+    { provider: 'codex', id: 'personal', active: false, authenticated: true, duplicate: false, usage: { plan: 'Plus', fiveHourUsed: 7, weeklyUsed: 19, status: 'ready' } },
   ],
   sessions: [{ provider: 'codex', id: 'session-1', title: 'Build account switcher', updatedAt: Math.floor(Date.now() / 1000) }],
   recommendation: { provider: 'codex', account: 'personal', reason: 'Available profile' },
@@ -41,6 +41,41 @@ describe('App', () => {
     expect(screen.queryByRole('heading', { name: 'Recent sessions' })).not.toBeInTheDocument()
     expect(screen.getAllByRole('progressbar')).toHaveLength(4)
     expect(screen.queryByText(/1970/)).not.toBeInTheDocument()
+  })
+
+  it('renders account cards directly when accounts have one category', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(json(state))
+    render(<App />)
+
+    expect(await screen.findByRole('heading', { name: 'work' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'personal' })).toBeInTheDocument()
+    expect(screen.queryByLabelText('Account categories')).not.toBeInTheDocument()
+  })
+
+  it('navigates between account categories and filters account cards', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(json({
+      ...state,
+      accounts: [
+        { provider: 'codex', id: 'default', active: true, authenticated: true, duplicate: false, usage: { plan: 'plus', status: 'ready' } },
+        { provider: 'codex', id: 'account-01', active: false, authenticated: true, duplicate: false, usage: { plan: 'Plus', status: 'blocked' } },
+        { provider: 'codex', id: 'personal', active: false, authenticated: true, duplicate: false, usage: { plan: 'Free', status: 'ready' } },
+      ],
+      recommendation: null,
+    }))
+    render(<App />)
+
+    expect(await screen.findByLabelText('Account categories')).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'default' })).not.toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: /Plus.*2 accounts.*1 ready.*1 blocked/i }))
+
+    expect(screen.getByRole('heading', { name: 'default' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'account-01' })).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'personal' })).not.toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'All categories' }))
+    await userEvent.click(screen.getByRole('button', { name: /Personal.*1 account.*1 ready/i }))
+
+    expect(screen.getByRole('heading', { name: 'personal' })).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'default' })).not.toBeInTheDocument()
   })
 
   it('does not imply full capacity when live usage is unavailable', async () => {

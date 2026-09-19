@@ -6,6 +6,7 @@ import { CommandModal } from './components/CommandModal'
 import { RefreshIcon, SparkIcon } from './components/Icons'
 import type { Account, AgentHopState } from './types'
 import { sortAccountsByUsability } from './accountOrdering'
+import { accountCategories } from './accountCategories'
 
 type ModalState = { command: string; title: string; description?: string } | null
 
@@ -29,6 +30,7 @@ export default function App() {
   const [modal, setModal] = useState<ModalState>(null)
   const [addingAccount, setAddingAccount] = useState(false)
   const [newAccount, setNewAccount] = useState('')
+  const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null)
   const stateRequest = useRef(0)
 
   const applyState = useCallback((next: AgentHopState, requestId: number) => {
@@ -50,8 +52,16 @@ export default function App() {
 
   useEffect(() => { void load() }, [load])
 
+  useEffect(() => {
+    setSelectedCategoryId(null)
+  }, [providerId, state])
+
   const recommendedId = state?.recommendation?.provider === providerId ? state.recommendation.account : undefined
   const accounts = useMemo(() => sortAccountsByUsability(state?.accounts.filter((account) => account.provider === providerId) ?? [], recommendedId), [state, providerId, recommendedId])
+  const categories = useMemo(() => accountCategories(accounts), [accounts])
+  const selectedCategory = categories.find((category) => category.id === selectedCategoryId)
+  const showingCategories = categories.length > 1 && !selectedCategory
+  const displayedAccounts = selectedCategory ? selectedCategory.accounts : accounts
   const provider = state?.providers.find((item) => item.id === providerId)
   const canOnboard = providerId === 'codex' && Boolean(provider?.available) && !provider?.error
 
@@ -189,12 +199,25 @@ export default function App() {
                 <p>Creates a separate local profile. You’ll run a terminal command to sign in; no password is entered here.</p>
               </form>}
               {provider && (!provider.available || provider.error) && <div className="provider-warning" role="status">{provider.error || `${provider.name} is currently unavailable.`}</div>}
-              {accounts.length > 0 ? (
+              {showingCategories ? (
+                <nav className="category-grid" aria-label="Account categories">
+                  {categories.map((category) => (
+                    <button className="category-tile" type="button" key={category.id} onClick={() => setSelectedCategoryId(category.id)}>
+                      <span className="category-tile__label">{category.label}</span>
+                      <span className="category-tile__summary">{category.summary}</span>
+                      <span className="category-tile__action">View accounts <span aria-hidden="true">→</span></span>
+                    </button>
+                  ))}
+                </nav>
+              ) : displayedAccounts.length > 0 ? (
+                <>
+                  {selectedCategory && <div className="category-breadcrumb"><button type="button" onClick={() => setSelectedCategoryId(null)}>All categories</button><span aria-hidden="true">/</span><span>{selectedCategory.label}</span></div>}
                 <div className="account-grid">
-                  {accounts.map((account) => (
+                  {displayedAccounts.map((account) => (
                     <AccountCard key={account.id} account={account} recommended={account.id === recommendedId} busy={busyKey === `account:${account.provider}:${account.id}` || busyKey === `command:${account.provider}:${account.id}`} disabled={Boolean(busyKey) || refreshing} onActivate={(item) => void activate(item)} onNewSession={(item) => void getCommand(item)} />
                   ))}
                 </div>
+                </>
               ) : <div className="inline-empty">No accounts are connected to this provider yet.</div>}
             </section>
 

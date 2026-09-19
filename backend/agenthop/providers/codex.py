@@ -149,8 +149,8 @@ class CodexAdapter(ProviderAdapter):
             raise DuplicateAccountError(f"account already exists: {account}") from exc
         return " ".join(
             [
-                f"CODEX_HOME={shlex.quote(str(home))}",
-                shlex.quote(self.binary),
+                f'CODEX_HOME="$HOME/.codex-profiles/{account}"',
+                "codex",
                 "-c",
                 shlex.quote('cli_auth_credentials_store="file"'),
                 "login",
