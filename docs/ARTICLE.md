@@ -24,7 +24,22 @@ When you are deep in work, a list of profile names is not enough. I still could 
 
 So the script became a dashboard. AgentHop reads the local, supported status for each profile and turns it into a small decision surface: **ready**, **close**, or **blocked**; readable reset times; and an ordering that puts usable accounts first. If more than one limit is exhausted, the account stays blocked until the later reset—because it is not truly available until every exhausted window clears.
 
-That was the first payoff. Instead of bouncing between accounts and terminal output, I could refresh once and decide whether to switch or wait.
+That was the first payoff. Instead of bouncing between accounts and terminal output, I could refresh once and decide whether to switch or wait. But a dashboard still asks you to open a dashboard. For a decision that happens several times in a day, that is one window too many.
+
+## The control surface moved to the tray
+
+Now AgentHop starts quietly in the Linux system tray. Clicking its icon gives me
+the short list I actually need: the best available account, ready and close
+accounts first, then blocked accounts ordered by their real expected-unblock
+time. A blocked account stays muted; an available entry can be clicked to switch
+directly. The full dashboard is still there for onboarding, inspecting limits,
+or preparing a new command, but it is no longer a mandatory stop between work
+and the next account.
+
+That distinction matters to me. The tray is for the frequent, low-friction
+question—*which account should I use right now?* The dashboard is for the less
+frequent, higher-context tasks—*add an identity, inspect the details, or start a
+new session.*
 
 ## Then I found the problem that mattered more
 
@@ -114,13 +129,18 @@ You need Python 3.11+, Node.js 18.19+ (Node 20+ recommended), npm, and the Codex
 git clone https://github.com/Thegm26/AgentHop.git
 cd AgentHop
 
-python -m venv .venv
-source .venv/bin/activate
-python -m pip install -e '.[dev]'
-agenthop --reload --port 8000
+python3 -m venv .venv
+.venv/bin/pip install -e '.[dev]'
+./scripts/desktop.sh
 ```
 
-In another terminal:
+That starts AgentHop in the local Linux system tray; it does not open a window.
+Click the icon to refresh and select an available account directly. Choose
+**Open dashboard…** when you need the full view, or run the launcher again to
+reveal the existing dashboard. The launcher builds the React UI when needed and
+keeps the backend on loopback.
+
+For frontend development, use another terminal:
 
 ```bash
 cd frontend
@@ -128,7 +148,10 @@ npm install
 npm run dev
 ```
 
-Open `http://localhost:8080`. Click **Add account**, choose a local profile name, copy the displayed sign-in command, and complete the normal provider login in your browser. Then return to AgentHop and choose **Refresh usage**.
+Click **Add account**, choose a local profile name, copy the displayed sign-in
+command, and complete the normal provider login in your browser. Then return to
+AgentHop and choose **Refresh usage**. The app deliberately shows new-session
+commands for review rather than executing a shell for you.
 
 For the full setup, API, and security notes, see the [README](https://github.com/Thegm26/AgentHop#readme).
 

@@ -88,6 +88,10 @@ includes the cover image and final upload steps.
 - the Codex CLI installed and available on `PATH`
 - a local Codex login for every profile you want to use
 
+For the recommended Linux desktop mode, also install the distribution packages
+for GTK 3, WebKit2GTK 4.1, and Ayatana AppIndicator3. They are system runtime
+dependencies; AgentHop does not install them into its Python environment.
+
 AgentHop does not create accounts or bypass provider limits. Each account must be
 legitimate and used in accordance with the provider's terms.
 
@@ -96,13 +100,30 @@ legitimate and used in accordance with the provider's terms.
 This project is under active development. From the repository root:
 
 ```bash
-python -m venv .venv
-source .venv/bin/activate
-python -m pip install -e '.[dev]'
-agenthop --reload --port 8000
+python3 -m venv .venv
+.venv/bin/pip install -e '.[dev]'
+./scripts/desktop.sh
 ```
 
-In a second terminal:
+This rebuilds the dashboard when its source has changed, starts a loopback-only
+backend, and stays in the Linux system tray without opening a dashboard window.
+Click the tray icon to see available accounts, their blocked/unblock state, and
+the best available option; choose an enabled account there to switch directly.
+Use **Open dashboard…** only for detail, onboarding, or a new-session command.
+Running the launcher a second time opens the existing dashboard instead of
+starting another backend. The browser UI never receives credentials. The
+**Start new session** dialog intentionally stays a copyable command in this MVP;
+AgentHop does not execute shell commands for you.
+
+To add an application-menu launcher (never installed automatically):
+
+```bash
+./scripts/install-desktop-launcher.sh
+```
+
+### Browser development mode
+
+For frontend work, use separate terminals:
 
 ```bash
 cd frontend
@@ -169,11 +190,12 @@ command from the quickstart when pairing it with Vite's configured proxy.
 
 ### Production build expectations
 
-`npm run build` writes static assets to `frontend/dist`. The FastAPI process does
-not serve that directory. A production-like local setup needs a separate static
-server that serves `dist` and proxies relative `/api` requests to the AgentHop
-backend. Opening `dist/index.html` directly or serving it without that proxy is
-not a complete deployment. Remote and multi-user deployment are outside the MVP.
+`npm run build` writes static assets to `frontend/dist`. Desktop mode serves this
+directory through the loopback FastAPI process, so relative `/api` calls remain
+same-origin. Set `AGENTHOP_FRONTEND_DIST` to an explicit built-assets directory
+for a future package layout. If the build is missing, `scripts/desktop.sh` builds
+it; direct `agenthop desktop` reports an actionable startup error. Remote and
+multi-user deployment are outside the MVP.
 
 ## HTTP API
 

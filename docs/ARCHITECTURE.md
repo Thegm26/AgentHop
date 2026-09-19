@@ -5,10 +5,13 @@ design guide, not a promise that every roadmap capability is implemented.
 
 ## System context
 
-AgentHop is a single-user local application with three major components:
+AgentHop is a single-user local application with three major components. In
+recommended Linux desktop mode, a small system-Python GTK shell owns a tray icon
+and creates a WebKit dashboard window only when explicitly requested, while the
+project virtual environment runs the backend:
 
 ```text
-Browser (React)
+GTK tray menu + lazy WebKit window (or browser in development)
       |
       | HTTP/JSON over loopback
       v
@@ -31,6 +34,22 @@ show a copyable command; the browser does not host a CLI terminal. The API keeps
 session discovery and resume command support, but the dashboard does not list
 conversation titles. It normalizes reset timestamps expressed in seconds or
 milliseconds and displays relative wait times.
+
+### Tray-first desktop shell
+
+`scripts/desktop.sh` builds the static frontend if needed, then starts one
+loopback backend and a GTK status icon. The first invocation remains in the
+background: no WebKit process or dashboard window is created. The tray menu reads
+cached state from `GET /api/state`, refreshes live usage through `POST
+/api/refresh`, orders entries with the same usable-first and earliest-unblock
+rules as the dashboard, and disables unusable entries. Selecting an enabled
+entry posts the activation request, refreshes state, and displays a local
+notification. **Open dashboard…** and a second launcher invocation are the only
+paths that create or reveal the dashboard window.
+
+The shell uses a private, owner-only Unix socket under the runtime directory so a
+second invocation can request the existing process to reveal its window. It does
+not pass credentials over that socket.
 
 ### Backend
 
@@ -204,18 +223,20 @@ accepts `mode` (`new` or `resume`) and optional `sessionId` for resume.
 
 ## Trust boundaries and non-goals
 
-The browser and backend are separate trust zones even on one machine. The Vite
-development server proxies relative `/api` requests to `127.0.0.1:8000`. FastAPI
+The embedded WebKit frontend and backend are separate trust zones even on one
+machine. The Vite development server proxies relative `/api` requests to
+`127.0.0.1:8000`; desktop mode serves the built frontend from the same loopback
+FastAPI origin. FastAPI
 allows CORS only for HTTP(S) origins on `localhost`, `127.0.0.1`, and `[::1]`, and
 an additional middleware rejects any other supplied `Origin`. Trusted-host
 middleware accepts only those loopback hostnames (plus the test host). Requests
 without `Origin` remain possible for local non-browser clients, so these controls
 are not authentication and do not stop malicious software running as the user.
 
-`npm run build` produces `frontend/dist`, but the FastAPI application does not
-serve it. A production-like local server must serve those static assets and proxy
-`/api` to FastAPI. Bundled production serving and remote deployment are not MVP
-features.
+`npm run build` produces `frontend/dist`, which desktop mode serves through
+FastAPI. The path is source-tree-relative by default and can be overridden with
+`AGENTHOP_FRONTEND_DIST` for a packaged layout. Bundled remote or multi-user
+deployment is not an MVP feature.
 
 The MVP is not:
 

@@ -56,9 +56,22 @@ not execute that text.
 A malicious webpage may try to call a loopback service. The backend accepts only
 loopback Host values, permits CORS only for HTTP(S) loopback origins, and rejects
 other supplied Origin headers. Development requests pass through Vite's `/api`
-proxy. Local tools can omit Origin, so these controls are not authentication.
+proxy. In Linux desktop mode, the embedded WebKit view uses the same loopback
+FastAPI origin. Local tools can omit Origin, so these controls are not
+authentication.
 Future non-loopback or privileged deployments require a real authentication and
 CSRF design.
+
+### Desktop control socket and tray process
+
+The Linux desktop launcher keeps one background tray process and uses a Unix
+socket only to ask that process to reveal its dashboard window. The runtime
+directory, socket, and socket mode are checked to be owned by the current user
+and inaccessible to group or other users; unexpected socket paths are rejected.
+The message contains only the literal request to show the window, never an
+account identifier, credential, command, or API response. The tray shell talks
+to its FastAPI child only on `127.0.0.1` and URL-encodes provider/account path
+segments before activation requests.
 
 ### Migration loss or corruption
 
@@ -118,8 +131,9 @@ After migration:
 - An in-process lock serializes migration in one backend instance; separate
   backend and Codex processes can still race.
 - Usage information may be missing or stale and is not an authorization signal.
-- The FastAPI process does not serve the built frontend. Any static server and
-  `/api` proxy added for production-like use becomes part of the security boundary.
+- Desktop mode serves the built frontend from the same loopback FastAPI origin.
+  Its static-file and SPA fallback handling are part of the local security
+  boundary; remote or multi-user hosting is out of scope.
 
 ## Dependency audit note
 
