@@ -13,6 +13,8 @@ from agenthop.models import (
     CommandRequest,
     CommandResponse,
     HealthResponse,
+    OnboardRequest,
+    OnboardResponse,
     StateModel,
 )
 from agenthop.providers.base import DuplicateAccountError, UnknownAccountError
@@ -59,6 +61,28 @@ def create_app(service: AccountService | None = None) -> FastAPI:
     @app.post("/api/refresh", response_model=StateModel, response_model_by_alias=True)
     def refresh() -> StateModel:
         return current_service().state(refresh=True)
+
+    @app.post(
+        "/api/providers/{provider}/accounts",
+        response_model=OnboardResponse,
+        status_code=201,
+    )
+    def onboard(provider: str, request: OnboardRequest) -> OnboardResponse:
+        try:
+            adapter = current_service().provider(provider)
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        try:
+            command = adapter.onboard(request.account)
+        except DuplicateAccountError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except NotImplementedError as exc:
+            raise HTTPException(status_code=501, detail=str(exc)) from exc
+        except (OSError, RuntimeError) as exc:
+            raise HTTPException(status_code=500, detail=f"onboarding failed: {exc}") from exc
+        return OnboardResponse(provider=provider, account=request.account, command=command)
 
     @app.post(
         "/api/providers/{provider}/accounts/{account}/activate",

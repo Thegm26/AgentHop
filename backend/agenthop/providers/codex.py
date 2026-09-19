@@ -135,6 +135,28 @@ class CodexAdapter(ProviderAdapter):
             if temporary:
                 Path(temporary).unlink(missing_ok=True)
 
+    def onboard(self, account: str) -> str:
+        self._validate_account(account)
+        if account == "default":
+            raise ValueError("default is reserved for the existing Codex home")
+        if not self.binary:
+            raise RuntimeError("codex executable not found in PATH")
+        self._ensure_roots()
+        home = self.profile_root / account
+        try:
+            home.mkdir(mode=0o700)
+        except FileExistsError as exc:
+            raise DuplicateAccountError(f"account already exists: {account}") from exc
+        return " ".join(
+            [
+                f"CODEX_HOME={shlex.quote(str(home))}",
+                shlex.quote(self.binary),
+                "-c",
+                shlex.quote('cli_auth_credentials_store="file"'),
+                "login",
+            ]
+        )
+
     def _rpc_call(self, home: Path) -> tuple[dict[str, Any], dict[str, Any]]:
         if not self.binary:
             raise RuntimeError("codex executable not found in PATH")

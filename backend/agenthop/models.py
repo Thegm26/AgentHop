@@ -73,6 +73,16 @@ class ActivationResponse(APIModel):
     active: bool
 
 
+class OnboardRequest(APIModel):
+    account: str = Field(min_length=1, max_length=64)
+
+
+class OnboardResponse(APIModel):
+    provider: str
+    account: str
+    command: str
+
+
 class HealthResponse(APIModel):
     status: Literal["ok"] = "ok"
     version: str

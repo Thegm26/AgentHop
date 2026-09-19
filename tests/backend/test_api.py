@@ -4,7 +4,7 @@ from fastapi.testclient import TestClient
 
 from agenthop.api import create_app
 from agenthop.models import AccountModel, ProviderModel, SessionModel, UsageModel
-from agenthop.providers.base import ProviderAdapter
+from agenthop.providers.base import DuplicateAccountError, ProviderAdapter
 from agenthop.service import AccountService
 
 
@@ -15,6 +15,7 @@ class FakeProvider(ProviderAdapter):
     def __init__(self) -> None:
         self.activated: str | None = None
         self.refreshed = False
+        self.onboarded: str | None = None
 
     def provider(self) -> ProviderModel:
         return ProviderModel(id=self.id, name=self.name, available=True)
@@ -42,6 +43,14 @@ class FakeProvider(ProviderAdapter):
         if account != "work":
             raise ValueError("unknown account")
         self.activated = account
+
+    def onboard(self, account: str) -> str:
+        if account == "existing":
+            raise DuplicateAccountError("account already exists: existing")
+        if account != "new-account":
+            raise ValueError("invalid account name")
+        self.onboarded = account
+        return "CODEX_HOME=/safe/profile codex login"
 
     def command(self, account: str, mode: str, session_id: str | None = None) -> str:
         if account != "work":
@@ -93,6 +102,37 @@ def test_activate_and_command() -> None:
         json={"mode": "resume", "sessionId": "session-1"},
     )
     assert response.json() == {"command": "fake resume session-1"}
+
+
+def test_onboard_returns_a_terminal_command_without_accepting_credentials() -> None:
+    client, provider = client_and_provider()
+
+    response = client.post(
+        "/api/providers/fake/accounts", json={"account": "new-account"}
+    )
+
+    assert response.status_code == 201
+    assert response.json() == {
+        "provider": "fake",
+        "account": "new-account",
+        "command": "CODEX_HOME=/safe/profile codex login",
+    }
+    assert provider.onboarded == "new-account"
+
+
+def test_onboard_rejects_duplicates_invalid_names_and_unknown_providers() -> None:
+    client, _ = client_and_provider()
+
+    assert client.post(
+        "/api/providers/fake/accounts", json={"account": "existing"}
+    ).status_code == 409
+    assert client.post(
+        "/api/providers/fake/accounts", json={"account": "not valid"}
+    ).status_code == 400
+    assert client.post(
+        "/api/providers/missing/accounts", json={"account": "new-account"}
+    ).status_code == 404
+    assert client.post("/api/providers/fake/accounts", json={"account": ""}).status_code == 422
 
 
 def test_api_rejects_invalid_mode_and_unknown_provider() -> None:

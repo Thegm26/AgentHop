@@ -31,6 +31,9 @@ class ProviderAdapter(ABC):
     @abstractmethod
     def activate(self, account: str) -> None: ...
 
+    def onboard(self, account: str) -> str:
+        raise NotImplementedError("account onboarding is not supported by this provider")
+
     @abstractmethod
     def command(
         self, account: str, mode: str, session_id: str | None = None

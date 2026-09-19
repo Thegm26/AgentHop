@@ -122,8 +122,12 @@ networks.
 ### Add a Codex profile
 
 AgentHop discovers the normal `~/.codex` home as `default` and named directories
-under `~/.codex-profiles`. The MVP does not create or authenticate accounts from
-the dashboard. To add a file-backed profile with a valid name (letters, numbers,
+under `~/.codex-profiles`. In the dashboard, click **Add account**, enter a
+profile name, then copy and run the displayed command in your terminal. Complete
+the browser sign-in and click **Refresh usage**. The dashboard creates the local
+profile but never receives your password or login token.
+
+To add a file-backed profile manually with a valid name (letters, numbers,
 dots, dashes, or underscores; maximum 64 characters), use Codex's supported login
 flow:
 

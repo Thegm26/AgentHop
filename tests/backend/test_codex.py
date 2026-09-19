@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 
+from agenthop.providers.base import DuplicateAccountError
 from agenthop.providers.codex import CodexAdapter
 
 
@@ -61,6 +62,30 @@ def test_activation_is_atomic_and_validated(adapter: CodexAdapter) -> None:
         adapter.activate("missing")
     with pytest.raises(ValueError, match="invalid account"):
         adapter.activate("../escape")
+
+
+def test_onboard_creates_private_profile_and_returns_quoted_login_command(
+    adapter: CodexAdapter,
+) -> None:
+    command = adapter.onboard("account-02")
+    profile = adapter.profile_root / "account-02"
+
+    assert profile.is_dir()
+    assert profile.stat().st_mode & 0o777 == 0o700
+    assert shlex.split(command) == [
+        f"CODEX_HOME={profile}",
+        "/usr/bin/codex-test",
+        "-c",
+        'cli_auth_credentials_store="file"',
+        "login",
+    ]
+    assert not (profile / "auth.json").exists()
+    with pytest.raises(DuplicateAccountError, match="already exists"):
+        adapter.onboard("account-02")
+    with pytest.raises(ValueError, match="reserved"):
+        adapter.onboard("default")
+    with pytest.raises(ValueError, match="invalid account"):
+        adapter.onboard("../escape")
 
 
 def test_stale_active_marker_falls_back_to_default(adapter: CodexAdapter) -> None:
