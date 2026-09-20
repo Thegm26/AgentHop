@@ -82,7 +82,6 @@ export default function App() {
   const accounts = useMemo(() => sortAccountsByUsability(state?.accounts.filter((account) => account.provider === providerId) ?? [], recommendedId), [state, providerId, recommendedId])
   const categories = useMemo(() => accountCategories(accounts), [accounts])
   const selectedCategory = categories.find((category) => category.id === selectedCategoryId)
-  const showingCategories = categories.length > 1 && !selectedCategory
   const displayedAccounts = selectedCategory ? selectedCategory.accounts : accounts
   const provider = state?.providers.find((item) => item.id === providerId)
   const canOnboard = providerId === 'codex' && Boolean(provider?.available) && !provider?.error
@@ -228,19 +227,16 @@ export default function App() {
                 <p>Creates a separate local profile. You’ll run a terminal command to sign in; no password is entered here.</p>
               </form>}
               {provider && (!provider.available || provider.error) && <div className="provider-warning" role="status">{provider.error || `${provider.name} is currently unavailable.`}</div>}
-              {showingCategories ? (
-                <nav className="category-grid" aria-label="Account categories">
+              {categories.length > 1 && (
+                <nav className="category-filters" aria-label="Account categories">
+                  <button className="category-filter" type="button" aria-pressed={!selectedCategory} onClick={() => setSelectedCategoryId(null)}>All accounts</button>
                   {categories.map((category) => (
-                    <button className="category-tile" type="button" key={category.id} onClick={() => setSelectedCategoryId(category.id)}>
-                      <span className="category-tile__label">{category.label}</span>
-                      <span className="category-tile__summary">{category.summary}</span>
-                      <span className="category-tile__action">View accounts <span aria-hidden="true">→</span></span>
-                    </button>
+                    <button className="category-filter" type="button" key={category.id} aria-pressed={selectedCategoryId === category.id} onClick={() => setSelectedCategoryId(category.id)}>{category.label} <span>({category.accounts.length})</span></button>
                   ))}
                 </nav>
-              ) : displayedAccounts.length > 0 ? (
+              )}
+              {displayedAccounts.length > 0 ? (
                 <>
-                  {selectedCategory && <div className="category-breadcrumb"><button type="button" onClick={() => setSelectedCategoryId(null)}>All categories</button><span aria-hidden="true">/</span><span>{selectedCategory.label}</span></div>}
                 <div className="account-grid">
                   {displayedAccounts.map((account) => (
                     <AccountCard key={account.id} account={account} recommended={account.id === recommendedId} busy={busyKey === `account:${account.provider}:${account.id}` || busyKey === `command:${account.provider}:${account.id}`} disabled={Boolean(busyKey) || refreshing} onActivate={(item) => void activate(item)} onNewSession={(item) => void getCommand(item)} />

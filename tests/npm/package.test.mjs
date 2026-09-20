@@ -28,8 +28,8 @@ test("launcher routes desktop and API commands without install hooks", () => {
     args: ["--port", "8765"],
   });
   assert.equal(
-    runtimeDirectory("0.1.0", { XDG_CACHE_HOME: "/tmp/agenthop-cache" }, "/home/test"),
-    "/tmp/agenthop-cache/agenthop/0.1.0",
+    runtimeDirectory("0.2.0", { XDG_CACHE_HOME: "/tmp/agenthop-cache" }, "/home/test"),
+    "/tmp/agenthop-cache/agenthop/0.2.0",
   );
 });
 

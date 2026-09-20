@@ -53,11 +53,12 @@ describe('App', () => {
     expect(screen.queryByLabelText('Account categories')).not.toBeInTheDocument()
   })
 
-  it('navigates between account categories and filters account cards', async () => {
+  it('keeps every account card visible initially and lets categories filter them', async () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(json({
       ...state,
       accounts: [
-        { provider: 'codex', id: 'default', active: true, authenticated: true, duplicate: false, usage: { plan: 'plus', status: 'ready' } },
+        { provider: 'codex', id: 'default', active: true, authenticated: false, duplicate: false },
+        { provider: 'codex', id: 'account-05', active: false, authenticated: false, duplicate: false },
         { provider: 'codex', id: 'account-01', active: false, authenticated: true, duplicate: false, usage: { plan: 'Plus', status: 'blocked' } },
         { provider: 'codex', id: 'personal', active: false, authenticated: true, duplicate: false, usage: { plan: 'Free', status: 'ready' } },
       ],
@@ -66,14 +67,18 @@ describe('App', () => {
     render(<App />)
 
     expect(await screen.findByLabelText('Account categories')).toBeInTheDocument()
-    expect(screen.queryByRole('heading', { name: 'default' })).not.toBeInTheDocument()
-    await userEvent.click(screen.getByRole('button', { name: /Plus.*2 accounts.*1 ready.*1 blocked/i }))
-
     expect(screen.getByRole('heading', { name: 'default' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'account-05' })).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'account-01' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'personal' })).toBeInTheDocument()
+    expect(screen.getAllByLabelText('Account state: disconnected')).toHaveLength(2)
+    await userEvent.click(screen.getByRole('button', { name: 'Plus (1)' }))
+
+    expect(screen.getByRole('heading', { name: 'account-01' })).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'default' })).not.toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: 'personal' })).not.toBeInTheDocument()
-    await userEvent.click(screen.getByRole('button', { name: 'All categories' }))
-    await userEvent.click(screen.getByRole('button', { name: /Personal.*1 account.*1 ready/i }))
+    await userEvent.click(screen.getByRole('button', { name: 'All accounts' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Personal (1)' }))
 
     expect(screen.getByRole('heading', { name: 'personal' })).toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: 'default' })).not.toBeInTheDocument()
@@ -91,11 +96,11 @@ describe('App', () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(json(categorizedState))
     render(<App />)
 
-    await userEvent.click(await screen.findByRole('button', { name: /Plus.*1 account.*1 ready/i }))
+    await userEvent.click(await screen.findByRole('button', { name: 'Plus (1)' }))
     await userEvent.click(screen.getByRole('button', { name: 'Refresh usage' }))
 
     expect(await screen.findByRole('heading', { name: 'default' })).toBeInTheDocument()
-    expect(screen.queryByLabelText('Account categories')).not.toBeInTheDocument()
+    expect(screen.getByLabelText('Account categories')).toBeInTheDocument()
   })
 
   it('polls every five seconds without overlapping requests and stops when unmounted', async () => {

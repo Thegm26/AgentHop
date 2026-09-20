@@ -252,6 +252,48 @@ def test_usage_mapping_and_status() -> None:
     assert usage.five_hour_used == 96
 
 
+def test_refresh_regenerates_usage_and_state_keeps_the_last_snapshot(
+    adapter: CodexAdapter, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    add_profile(adapter, "account-01")
+    calls: list[Path] = []
+    profile_refreshes = 0
+
+    def rpc_call(home: Path):
+        nonlocal profile_refreshes
+        calls.append(home)
+        if home.name == "account-01":
+            profile_refreshes += 1
+            account = {"account": {"planType": "plus"}}
+            used_percent = profile_refreshes
+        else:
+            account = {}
+            used_percent = 0
+        return (
+            account,
+            {
+                "ordinaryUsageAllowed": True,
+                "rateLimits": {
+                    "primary": {
+                        "windowDurationMins": 300,
+                        "usedPercent": used_percent,
+                    }
+                },
+            },
+        )
+
+    monkeypatch.setattr(adapter, "_rpc_call", rpc_call)
+
+    first = adapter.accounts(refresh=True)[1]
+    cached = adapter.accounts()[1]
+    second = adapter.accounts(refresh=True)[1]
+
+    assert first.usage and first.usage.five_hour_used == 1
+    assert cached.usage and cached.usage.five_hour_used == 1
+    assert second.usage and second.usage.five_hour_used == 2
+    assert len(calls) == 4
+
+
 def test_destination_symlink_is_rejected(adapter: CodexAdapter, tmp_path: Path) -> None:
     home = add_profile(adapter, "account-01")
     local = home / "sessions" / "nested" / "rollout.jsonl"

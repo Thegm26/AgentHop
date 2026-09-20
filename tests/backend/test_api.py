@@ -14,21 +14,24 @@ class FakeProvider(ProviderAdapter):
 
     def __init__(self) -> None:
         self.activated: str | None = None
-        self.refreshed = False
+        self.refresh_count = 0
         self.onboarded: str | None = None
 
     def provider(self) -> ProviderModel:
         return ProviderModel(id=self.id, name=self.name, available=True)
 
     def accounts(self, *, refresh: bool = False) -> list[AccountModel]:
-        self.refreshed = refresh
+        if refresh:
+            self.refresh_count += 1
         return [
             AccountModel(
                 provider=self.id,
                 id="work",
                 active=True,
                 authenticated=True,
-                usage=UsageModel(status="ready", weeklyUsed=10, fiveHourUsed=25)
+                usage=UsageModel(
+                    status="ready", weeklyUsed=10, fiveHourUsed=20 + self.refresh_count
+                )
                 if refresh
                 else None,
             )
@@ -65,7 +68,7 @@ def client_and_provider() -> tuple[TestClient, FakeProvider]:
 
 def test_health_and_state_schema() -> None:
     client, _ = client_and_provider()
-    assert client.get("/api/health").json() == {"status": "ok", "version": "0.1.0"}
+    assert client.get("/api/health").json() == {"status": "ok", "version": "0.2.0"}
 
     response = client.get("/api/state")
     assert response.status_code == 200
@@ -83,12 +86,15 @@ def test_health_and_state_schema() -> None:
     assert payload["recommendation"]["account"] == "work"
 
 
-def test_refresh_collects_live_usage() -> None:
+def test_refresh_regenerates_live_usage_on_every_request() -> None:
     client, provider = client_and_provider()
-    response = client.post("/api/refresh")
-    assert response.status_code == 200
-    assert provider.refreshed is True
-    assert response.json()["accounts"][0]["usage"]["fiveHourUsed"] == 25
+    first = client.post("/api/refresh")
+    second = client.post("/api/refresh")
+
+    assert first.status_code == second.status_code == 200
+    assert provider.refresh_count == 2
+    assert first.json()["accounts"][0]["usage"]["fiveHourUsed"] == 21
+    assert second.json()["accounts"][0]["usage"]["fiveHourUsed"] == 22
 
 
 def test_refresh_only_accepts_post() -> None:

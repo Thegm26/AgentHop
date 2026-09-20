@@ -17,6 +17,7 @@ import time
 from pathlib import Path
 from typing import Any
 
+from agenthop import __version__
 from agenthop.models import AccountModel, ProviderModel, SessionModel, UsageModel
 from agenthop.providers.base import (
     DuplicateAccountError,
@@ -56,6 +57,7 @@ class CodexAdapter(ProviderAdapter):
         self.binary = binary or shutil.which("codex")
         self.rpc_timeout = rpc_timeout
         self._migration_lock = threading.Lock()
+        self._usage_cache: dict[str, UsageModel] = {}
 
     def provider(self) -> ProviderModel:
         return ProviderModel(
@@ -177,7 +179,7 @@ class CodexAdapter(ProviderAdapter):
                     "clientInfo": {
                         "name": "agenthop",
                         "title": "AgentHop",
-                        "version": "0.1.0",
+                        "version": __version__,
                     }
                 },
             },
@@ -288,7 +290,7 @@ class CodexAdapter(ProviderAdapter):
     ) -> AccountModel:
         duplicate = (home / DUPLICATE_MARKER).is_file()
         authenticated = (home / "auth.json").is_file()
-        usage: UsageModel | None = None
+        usage = self._usage_cache.get(name) if authenticated and not duplicate else None
         if refresh and not duplicate:
             try:
                 account, limits = self._rpc_call(home)
@@ -307,6 +309,12 @@ class CodexAdapter(ProviderAdapter):
                 ValueError,
             ) as exc:
                 usage = UsageModel(status="error", error=str(exc))
+            if authenticated:
+                self._usage_cache[name] = usage
+            else:
+                self._usage_cache.pop(name, None)
+        elif not authenticated or duplicate:
+            self._usage_cache.pop(name, None)
         return AccountModel(
             provider=self.id,
             id=name,
