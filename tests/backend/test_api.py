@@ -29,6 +29,7 @@ class FakeProvider(ProviderAdapter):
                 id="work",
                 active=True,
                 authenticated=True,
+                email="work@example.com",
                 usage=UsageModel(
                     status="ready", weeklyUsed=10, fiveHourUsed=20 + self.refresh_count
                 )
@@ -68,7 +69,7 @@ def client_and_provider() -> tuple[TestClient, FakeProvider]:
 
 def test_health_and_state_schema() -> None:
     client, _ = client_and_provider()
-    assert client.get("/api/health").json() == {"status": "ok", "version": "0.2.0"}
+    assert client.get("/api/health").json() == {"status": "ok", "version": "0.2.1"}
 
     response = client.get("/api/state")
     assert response.status_code == 200
@@ -77,6 +78,7 @@ def test_health_and_state_schema() -> None:
         {"id": "fake", "name": "Fake Provider", "available": True, "error": None}
     ]
     assert payload["accounts"][0]["id"] == "work"
+    assert payload["accounts"][0]["email"] == "work@example.com"
     assert payload["sessions"][0] == {
         "provider": "fake",
         "id": "session-1",

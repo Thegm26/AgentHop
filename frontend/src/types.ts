@@ -24,6 +24,7 @@ export interface Account {
   active: boolean
   authenticated: boolean
   duplicate: boolean
+  email?: string | null
   usage?: AccountUsage | null
 }
 

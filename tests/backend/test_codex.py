@@ -73,12 +73,14 @@ def test_onboard_creates_private_profile_and_returns_portable_login_command(
     assert profile.is_dir()
     assert profile.stat().st_mode & 0o777 == 0o700
     assert shlex.split(command) == [
+        "env",
         "CODEX_HOME=$HOME/.codex-profiles/account-02",
         "codex",
         "-c",
         'cli_auth_credentials_store="file"',
         "login",
     ]
+    assert command.startswith("env ")
     assert str(adapter.profile_root) not in command
     assert adapter.binary not in command
     assert not (profile / "auth.json").exists()
@@ -264,7 +266,14 @@ def test_refresh_regenerates_usage_and_state_keeps_the_last_snapshot(
         calls.append(home)
         if home.name == "account-01":
             profile_refreshes += 1
-            account = {"account": {"planType": "plus"}}
+            account = {
+                "account": {
+                    "type": "chatgpt",
+                    "planType": "plus",
+                    "email": "profile@example.com",
+                    "idToken": "must-not-leak",
+                }
+            }
             used_percent = profile_refreshes
         else:
             account = {}
@@ -289,9 +298,45 @@ def test_refresh_regenerates_usage_and_state_keeps_the_last_snapshot(
     second = adapter.accounts(refresh=True)[1]
 
     assert first.usage and first.usage.five_hour_used == 1
+    assert first.email == "profile@example.com"
     assert cached.usage and cached.usage.five_hour_used == 1
+    assert cached.email == "profile@example.com"
     assert second.usage and second.usage.five_hour_used == 2
+    assert second.email == "profile@example.com"
     assert len(calls) == 4
+
+
+def test_identity_cache_is_cleared_for_unauthenticated_and_duplicate_profiles(
+    adapter: CodexAdapter, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    profile = add_profile(adapter, "account-01")
+    logged_in = True
+
+    def rpc_call(_home: Path):
+        account = (
+            {"type": "chatgpt", "email": "profile@example.com"}
+            if logged_in
+            else None
+        )
+        return {"account": account}, {"ordinaryUsageAllowed": True, "rateLimits": {}}
+
+    monkeypatch.setattr(adapter, "_rpc_call", rpc_call)
+
+    assert adapter.accounts(refresh=True)[1].email == "profile@example.com"
+
+    logged_in = False
+    disconnected = adapter.accounts(refresh=True)[1]
+    assert disconnected.authenticated is False
+    assert disconnected.email is None
+    assert "account-01" not in adapter._email_cache
+
+    logged_in = True
+    assert adapter.accounts(refresh=True)[1].email == "profile@example.com"
+    (profile / ".duplicate-of").write_text("default\n")
+    duplicate = adapter.accounts()[1]
+    assert duplicate.duplicate is True
+    assert duplicate.email is None
+    assert "account-01" not in adapter._email_cache
 
 
 def test_destination_symlink_is_rejected(adapter: CodexAdapter, tmp_path: Path) -> None:

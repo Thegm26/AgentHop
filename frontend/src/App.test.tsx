@@ -7,7 +7,7 @@ import type { AgentHopState } from './types'
 const state: AgentHopState = {
   providers: [{ id: 'codex', name: 'Codex', available: true }],
   accounts: [
-    { provider: 'codex', id: 'work', active: true, authenticated: true, duplicate: false, usage: { plan: 'Plus', fiveHourUsed: 32, fiveHourResetsAt: 2_000_000_000, weeklyUsed: 61, status: 'ready' } },
+    { provider: 'codex', id: 'work', active: true, authenticated: true, duplicate: false, email: 'work@example.com', usage: { plan: 'Plus', fiveHourUsed: 32, fiveHourResetsAt: 2_000_000_000, weeklyUsed: 61, status: 'ready' } },
     { provider: 'codex', id: 'personal', active: false, authenticated: true, duplicate: false, usage: { plan: 'Plus', fiveHourUsed: 7, weeklyUsed: 19, status: 'ready' } },
   ],
   sessions: [{ provider: 'codex', id: 'session-1', title: 'Build account switcher', updatedAt: Math.floor(Date.now() / 1000) }],
@@ -35,6 +35,7 @@ describe('App', () => {
     expect(screen.getByRole('link', { name: 'AgentHop home' }).querySelector('img')).toBeNull()
     expect(fetchMock).toHaveBeenCalledWith('/api/refresh', expect.objectContaining({ method: 'POST' }))
     expect(screen.getByRole('heading', { name: 'work' })).toBeInTheDocument()
+    expect(screen.getByText('work@example.com')).toBeInTheDocument()
     expect(screen.getByText('Suggested profile')).toBeInTheDocument()
     expect(screen.queryByText('Available profile')).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Refresh usage' })).toBeInTheDocument()
@@ -72,6 +73,7 @@ describe('App', () => {
     expect(screen.getByRole('heading', { name: 'account-01' })).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'personal' })).toBeInTheDocument()
     expect(screen.getAllByLabelText('Account state: disconnected')).toHaveLength(2)
+    expect(screen.getAllByText('No email connected')).toHaveLength(2)
     await userEvent.click(screen.getByRole('button', { name: 'Plus (1)' }))
 
     expect(screen.getByRole('heading', { name: 'account-01' })).toBeInTheDocument()
@@ -139,6 +141,18 @@ describe('App', () => {
 
     expect(await screen.findByLabelText('Account state: unknown')).toHaveTextContent(/unknown/i)
     expect(screen.queryByRole('progressbar')).not.toBeInTheDocument()
+  })
+
+  it('uses a neutral email fallback for authenticated non-ChatGPT accounts', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(json({
+      ...state,
+      accounts: [{ provider: 'codex', id: 'api-key', active: true, authenticated: true, duplicate: false, usage: { status: 'ready' } }],
+      recommendation: null,
+    }))
+    render(<App />)
+
+    expect(await screen.findByText('Email unavailable')).toBeInTheDocument()
+    expect(screen.getByText('Connected account')).toBeInTheDocument()
   })
 
   it('shows account state separately from the 5-hour and weekly limits', async () => {

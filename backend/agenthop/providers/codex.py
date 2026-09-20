@@ -57,7 +57,9 @@ class CodexAdapter(ProviderAdapter):
         self.binary = binary or shutil.which("codex")
         self.rpc_timeout = rpc_timeout
         self._migration_lock = threading.Lock()
+        self._cache_lock = threading.Lock()
         self._usage_cache: dict[str, UsageModel] = {}
+        self._email_cache: dict[str, str] = {}
 
     def provider(self) -> ProviderModel:
         return ProviderModel(
@@ -151,6 +153,7 @@ class CodexAdapter(ProviderAdapter):
             raise DuplicateAccountError(f"account already exists: {account}") from exc
         return " ".join(
             [
+                "env",
                 f'CODEX_HOME="$HOME/.codex-profiles/{account}"',
                 "codex",
                 "-c",
@@ -290,15 +293,27 @@ class CodexAdapter(ProviderAdapter):
     ) -> AccountModel:
         duplicate = (home / DUPLICATE_MARKER).is_file()
         authenticated = (home / "auth.json").is_file()
-        usage = self._usage_cache.get(name) if authenticated and not duplicate else None
+        with self._cache_lock:
+            if authenticated and not duplicate:
+                usage = self._usage_cache.get(name)
+                email = self._email_cache.get(name)
+            else:
+                usage = None
+                email = None
         if refresh and not duplicate:
             try:
                 account, limits = self._rpc_call(home)
-                authenticated = account.get("account") is not None
+                account_data = account.get("account")
+                authenticated = isinstance(account_data, dict)
                 usage = (
                     self._usage(account, limits)
                     if authenticated
                     else UsageModel(status="error", error="not logged in")
+                )
+                refreshed_email = (
+                    account_data.get("email")
+                    if isinstance(account_data, dict)
+                    else None
                 )
             except (
                 AttributeError,
@@ -309,18 +324,30 @@ class CodexAdapter(ProviderAdapter):
                 ValueError,
             ) as exc:
                 usage = UsageModel(status="error", error=str(exc))
+                refreshed_email = None
             if authenticated:
-                self._usage_cache[name] = usage
+                with self._cache_lock:
+                    self._usage_cache[name] = usage
+                    if isinstance(refreshed_email, str) and refreshed_email:
+                        self._email_cache[name] = refreshed_email
+                    email = self._email_cache.get(name)
             else:
-                self._usage_cache.pop(name, None)
+                with self._cache_lock:
+                    self._usage_cache.pop(name, None)
+                    self._email_cache.pop(name, None)
+                email = None
         elif not authenticated or duplicate:
-            self._usage_cache.pop(name, None)
+            with self._cache_lock:
+                self._usage_cache.pop(name, None)
+                self._email_cache.pop(name, None)
+            email = None
         return AccountModel(
             provider=self.id,
             id=name,
             active=name == active,
             authenticated=authenticated,
             duplicate=duplicate,
+            email=email,
             usage=usage,
         )
 

@@ -87,7 +87,7 @@ flow—do not copy another profile's `auth.json`:
 ```bash
 mkdir -p "$HOME/.codex-profiles/account-01"
 chmod 700 "$HOME/.codex-profiles/account-01"
-CODEX_HOME="$HOME/.codex-profiles/account-01" \
+env CODEX_HOME="$HOME/.codex-profiles/account-01" \
   codex -c 'cli_auth_credentials_store="file"' login --device-auth
 ```
 

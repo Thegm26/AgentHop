@@ -88,6 +88,7 @@ button:focus-visible, select:focus-visible, a:focus-visible { outline: 3px solid
 .account-name-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .account-name-row h3 { max-width: 100%; margin: 0; overflow: hidden; text-overflow: ellipsis; font-size: 15px; letter-spacing: -.02em; }
 .account-identity > p { margin: 4px 0 0; overflow: hidden; text-overflow: ellipsis; color: var(--muted); font-size: 11px; white-space: nowrap; }
+.account-identity > p + p { margin-top: 2px; font-size: 10px; }
 .pill { display: inline-flex; align-items: center; gap: 4px; border-radius: 20px; padding: 3px 7px; font-size: 8px; line-height: 1; font-weight: 800; text-transform: uppercase; letter-spacing: .05em; }
 .pill--active { gap: 6px; padding: 5px 9px; border: 1px solid #176143; background: var(--green); color: #fff; font-size: 10px; letter-spacing: .07em; box-shadow: 0 1px 2px rgba(17,78,53,.2); }.pill--active span { width: 7px; height: 7px; border-radius: 50%; background: #d8f19c; box-shadow: 0 0 0 2px rgba(216,241,156,.22); }
 .pill--recommended { color: #75500f; background: #f5e6b8; }.pill svg { width: 10px; height: 10px; }

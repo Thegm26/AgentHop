@@ -33,6 +33,7 @@ class AccountModel(APIModel):
     active: bool
     authenticated: bool
     duplicate: bool = False
+    email: str | None = None
     usage: UsageModel | None = None
 
 

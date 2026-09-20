@@ -40,6 +40,7 @@ export function AccountCard({ account, recommended, busy, disabled, onActivate, 
   const status = account.duplicate ? 'duplicate' : !account.authenticated ? 'disconnected' : account.usage?.status ?? 'unknown'
   const unblockAt = status === 'blocked' ? expectedUnblockAt(account) : null
   const unblockWait = unblockAt == null ? null : timeUntil(unblockAt, now)
+  const email = account.email || (!account.authenticated || account.duplicate ? 'No email connected' : 'Email unavailable')
 
   return (
     <article className={`account-card ${account.active ? 'is-active' : ''} status-${status ?? 'unknown'}`}>
@@ -51,6 +52,7 @@ export function AccountCard({ account, recommended, busy, disabled, onActivate, 
             {account.active && <span className="pill pill--active"><span /> Active</span>}
             {recommended && <span className="pill pill--recommended"><SparkIcon /> Suggested profile</span>}
           </div>
+          <p>{email}</p>
           <p>{account.usage?.plan || (account.authenticated ? 'Connected account' : 'Authentication required')}</p>
         </div>
         <div className={`account-state account-state--${status}`} aria-label={`Account state: ${status}`}>
