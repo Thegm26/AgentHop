@@ -97,6 +97,28 @@ def test_stale_active_marker_falls_back_to_default(adapter: CodexAdapter) -> Non
     assert adapter.accounts()[0].active is True
 
 
+def test_remove_profile_preserves_default_and_rejects_active(adapter: CodexAdapter) -> None:
+    profile = add_profile(adapter, "account-01")
+    adapter.activate("account-01")
+
+    with pytest.raises(ValueError, match="cannot remove the active profile"):
+        adapter.remove("account-01")
+    assert profile.exists()
+    with pytest.raises(ValueError, match="default profile cannot be removed"):
+        adapter.remove("default")
+
+    adapter.activate("default")
+    adapter.remove("account-01")
+    assert not profile.exists()
+
+
+def test_remove_rejects_non_profile_or_symlink(adapter: CodexAdapter) -> None:
+    (adapter.profile_root / "account-link").symlink_to(adapter.default_home, target_is_directory=True)
+
+    with pytest.raises(LookupError, match="unknown account"):
+        adapter.remove("account-link")
+
+
 def test_command_shares_state_and_never_contains_auth(adapter: CodexAdapter) -> None:
     home = add_profile(adapter, "account-01")
     session = home / "sessions" / "2026" / "rollout.jsonl"

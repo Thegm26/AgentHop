@@ -85,6 +85,7 @@ export default function App() {
   const displayedAccounts = selectedCategory ? selectedCategory.accounts : accounts
   const provider = state?.providers.find((item) => item.id === providerId)
   const canOnboard = providerId === 'codex' && Boolean(provider?.available) && !provider?.error
+  const cleanupCandidates = accounts.filter((account) => account.id !== 'default' && !account.active && (!account.authenticated || account.duplicate || account.usage?.allowed === false || account.usage?.status === 'blocked' || account.usage?.status === 'error'))
 
   useEffect(() => {
     if (selectedCategoryId && !selectedCategory) setSelectedCategoryId(null)
@@ -134,7 +135,7 @@ export default function App() {
   async function onboard(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     const account = newAccount.trim()
-    if (!providerId || !account) return
+    if (!providerId) return
     if (operationInProgress.current) return
     operationInProgress.current = true
     setBusyKey('onboard')
@@ -151,7 +152,7 @@ export default function App() {
     }
     setAddingAccount(false)
     setNewAccount('')
-    setModal({ command: result.command, title: `Connect ${account}`, description: 'Run this in your terminal and complete the Codex sign-in in your browser. Then return here and click Refresh usage.' })
+    setModal({ command: result.command, title: `Connect ${result.account}`, description: 'Run this in your terminal and complete the Codex sign-in in your browser. Then return here and click Refresh usage.' })
     await load()
     operationInProgress.current = false
     setBusyKey('')
@@ -160,6 +161,28 @@ export default function App() {
   function cancelOnboarding() {
     setAddingAccount(false)
     setNewAccount('')
+  }
+
+  async function removeAccounts(items: Account[]) {
+    if (!items.length || operationInProgress.current) return
+    const names = items.map((item) => item.id).join(', ')
+    const prompt = items.length === 1
+      ? `Delete profile “${names}”? Its local Codex data will be permanently removed.`
+      : `Delete ${items.length} unusable profiles (${names})? Their local Codex data will be permanently removed.`
+    if (!window.confirm(prompt)) return
+    operationInProgress.current = true
+    setBusyKey('remove')
+    setError('')
+    try {
+      await refreshPromise.current
+      for (const account of items) await api.remove(account.provider, account.id)
+      await load()
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Could not remove the profile.')
+    } finally {
+      operationInProgress.current = false
+      setBusyKey('')
+    }
   }
 
   if (!state && !error) return <LoadingView />
@@ -219,12 +242,15 @@ export default function App() {
             <section aria-labelledby="accounts-heading">
               <div className="section-heading">
                 <div><p className="section-kicker">{provider?.name ?? 'Provider'}</p><h2 id="accounts-heading">Your accounts</h2></div>
-                {providerId === 'codex' && <button className="button button--secondary" onClick={() => setAddingAccount((current) => !current)} disabled={!canOnboard || Boolean(busyKey) || refreshing}>Add account</button>}
+                <div className="section-actions">
+                  {cleanupCandidates.length > 0 && <button className="button button--danger" onClick={() => void removeAccounts(cleanupCandidates)} disabled={Boolean(busyKey) || refreshing}>Clean unavailable ({cleanupCandidates.length})</button>}
+                  {providerId === 'codex' && <button className="button button--secondary" onClick={() => setAddingAccount((current) => !current)} disabled={!canOnboard || Boolean(busyKey) || refreshing}>Add account</button>}
+                </div>
               </div>
               {addingAccount && canOnboard && <form className="onboard-form" onSubmit={(event) => void onboard(event)}>
                 <label htmlFor="new-account">New account name</label>
-                <div className="onboard-controls"><input id="new-account" value={newAccount} onChange={(event) => setNewAccount(event.target.value)} placeholder="e.g. account-05" pattern="[A-Za-z0-9][A-Za-z0-9._-]{0,63}" maxLength={64} required autoFocus /><button className="button button--primary" type="submit" disabled={Boolean(busyKey) || refreshing}>{busyKey === 'onboard' ? 'Preparing…' : 'Create profile'}</button><button className="button button--secondary" type="button" onClick={cancelOnboarding} disabled={Boolean(busyKey) || refreshing}>Cancel</button></div>
-                <p>Creates a separate local profile. You’ll run a terminal command to sign in; no password is entered here.</p>
+                <div className="onboard-controls"><input id="new-account" value={newAccount} onChange={(event) => setNewAccount(event.target.value)} placeholder="e.g. account-05 (optional)" pattern="[A-Za-z0-9][A-Za-z0-9._-]{0,63}" maxLength={64} autoFocus /><button className="button button--primary" type="submit" disabled={Boolean(busyKey) || refreshing}>{busyKey === 'onboard' ? 'Preparing…' : 'Create profile'}</button><button className="button button--secondary" type="button" onClick={cancelOnboarding} disabled={Boolean(busyKey) || refreshing}>Cancel</button></div>
+                <p>Creates a separate local profile. Leave the name blank to use the next available account number. You’ll run a terminal command to sign in; no password is entered here.</p>
               </form>}
               {provider && (!provider.available || provider.error) && <div className="provider-warning" role="status">{provider.error || `${provider.name} is currently unavailable.`}</div>}
               {categories.length > 1 && (
@@ -239,7 +265,7 @@ export default function App() {
                 <>
                 <div className="account-grid">
                   {displayedAccounts.map((account) => (
-                    <AccountCard key={account.id} account={account} recommended={account.id === recommendedId} busy={busyKey === `account:${account.provider}:${account.id}` || busyKey === `command:${account.provider}:${account.id}`} disabled={Boolean(busyKey) || refreshing} onActivate={(item) => void activate(item)} onNewSession={(item) => void getCommand(item)} />
+                    <AccountCard key={account.id} account={account} recommended={account.id === recommendedId} busy={busyKey === `account:${account.provider}:${account.id}` || busyKey === `command:${account.provider}:${account.id}` || busyKey === 'remove'} disabled={Boolean(busyKey) || refreshing} onActivate={(item) => void activate(item)} onNewSession={(item) => void getCommand(item)} onDelete={(item) => void removeAccounts([item])} />
                   ))}
                 </div>
                 </>

@@ -34,6 +34,12 @@ class ProviderAdapter(ABC):
     def onboard(self, account: str) -> str:
         raise NotImplementedError("account onboarding is not supported by this provider")
 
+    def default_account_name(self) -> str:
+        raise ValueError("an account name is required for this provider")
+
+    def remove(self, account: str) -> None:
+        raise NotImplementedError("account removal is not supported by this provider")
+
     @abstractmethod
     def command(
         self, account: str, mode: str, session_id: str | None = None

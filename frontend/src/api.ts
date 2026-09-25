@@ -39,6 +39,11 @@ export const api = {
       `/api/providers/${encodeURIComponent(providerId)}/accounts`,
       { method: 'POST', body: JSON.stringify({ account }) },
     ),
+  remove: (providerId: string, accountId: string) =>
+    request<{ provider: string; account: string; removed: boolean }>(
+      `/api/providers/${encodeURIComponent(providerId)}/accounts/${encodeURIComponent(accountId)}`,
+      { method: 'DELETE' },
+    ),
   activate: (providerId: string, accountId: string) =>
     request<{ provider: string; account: string; active: boolean }>(
       `/api/providers/${encodeURIComponent(providerId)}/accounts/${encodeURIComponent(accountId)}/activate`,

@@ -19,6 +19,7 @@ from agenthop.models import (
     HealthResponse,
     OnboardRequest,
     OnboardResponse,
+    RemovalResponse,
     StateModel,
 )
 from agenthop.providers.base import DuplicateAccountError, UnknownAccountError
@@ -49,7 +50,7 @@ def create_app(service: AccountService | None = None) -> FastAPI:
     app.add_middleware(
         CORSMiddleware,
         allow_origin_regex=LOCAL_ORIGIN_RE.pattern,
-        allow_methods=["GET", "POST"],
+        allow_methods=["GET", "POST", "DELETE"],
         allow_headers=["Content-Type"],
     )
     app.state.account_service = service or AccountService([CodexAdapter()])
@@ -93,7 +94,8 @@ def create_app(service: AccountService | None = None) -> FastAPI:
         except ValueError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
         try:
-            command = adapter.onboard(request.account)
+            account = request.account if request.account.strip() else adapter.default_account_name()
+            command = adapter.onboard(account)
         except DuplicateAccountError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         except ValueError as exc:
@@ -102,7 +104,28 @@ def create_app(service: AccountService | None = None) -> FastAPI:
             raise HTTPException(status_code=501, detail=str(exc)) from exc
         except (OSError, RuntimeError) as exc:
             raise HTTPException(status_code=500, detail=f"onboarding failed: {exc}") from exc
-        return OnboardResponse(provider=provider, account=request.account, command=command)
+        return OnboardResponse(provider=provider, account=account, command=command)
+
+    @app.delete(
+        "/api/providers/{provider}/accounts/{account}",
+        response_model=RemovalResponse,
+    )
+    def remove(provider: str, account: str) -> RemovalResponse:
+        try:
+            adapter = current_service().provider(provider)
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        try:
+            adapter.remove(account)
+        except UnknownAccountError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except NotImplementedError as exc:
+            raise HTTPException(status_code=501, detail=str(exc)) from exc
+        except OSError as exc:
+            raise HTTPException(status_code=500, detail=f"profile removal failed: {exc}") from exc
+        return RemovalResponse(provider=provider, account=account, removed=True)
 
     @app.post(
         "/api/providers/{provider}/accounts/{account}/activate",

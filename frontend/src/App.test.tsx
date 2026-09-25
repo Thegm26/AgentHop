@@ -265,6 +265,44 @@ describe('App', () => {
     expect(screen.getByLabelText('New account name')).toHaveValue('')
   })
 
+  it('uses a generated name when a profile is created without one', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(json(state))
+      .mockResolvedValueOnce(json({ provider: 'codex', account: 'account-03', command: 'CODEX_HOME=/profiles/account-03 codex login' }, 201))
+      .mockResolvedValueOnce(json(state))
+    render(<App />)
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Add account' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Create profile' }))
+
+    expect(await screen.findByRole('dialog')).toHaveTextContent('Connect account-03')
+    expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/providers/codex/accounts', expect.objectContaining({ body: JSON.stringify({ account: '' }) }))
+  })
+
+  it('confirms before deleting inactive unusable profiles and never exposes delete for default or active profiles', async () => {
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true)
+    const unusableState = {
+      ...state,
+      accounts: [
+        { provider: 'codex', id: 'default', active: false, authenticated: false, duplicate: false },
+        { provider: 'codex', id: 'account-03', active: false, authenticated: true, duplicate: false, usage: { status: 'error' as const } },
+        { provider: 'codex', id: 'active-error', active: true, authenticated: true, duplicate: false, usage: { status: 'error' as const } },
+      ],
+      recommendation: null,
+    }
+    const fetchMock = vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(json(unusableState))
+      .mockResolvedValueOnce(json({ provider: 'codex', account: 'account-03', removed: true }))
+      .mockResolvedValueOnce(json({ ...unusableState, accounts: [unusableState.accounts[0], unusableState.accounts[2]] }))
+    render(<App />)
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Delete profile' }))
+
+    expect(confirm).toHaveBeenCalled()
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith('/api/providers/codex/accounts/account-03', expect.objectContaining({ method: 'DELETE' })))
+    await waitFor(() => expect(screen.queryAllByRole('button', { name: 'Delete profile' })).toHaveLength(0))
+  })
+
   it('keeps a successful profile creation visible when the follow-up refresh fails', async () => {
     vi.spyOn(globalThis, 'fetch')
       .mockResolvedValueOnce(json(state))

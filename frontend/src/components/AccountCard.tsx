@@ -10,6 +10,7 @@ interface Props {
   disabled: boolean
   onActivate: (account: Account) => void
   onNewSession: (account: Account) => void
+  onDelete: (account: Account) => void
 }
 
 function timeUntil(value: number | null | undefined, now: number) {
@@ -26,7 +27,7 @@ function timeUntil(value: number | null | undefined, now: number) {
   return `in ${minutes}m`
 }
 
-export function AccountCard({ account, recommended, busy, disabled, onActivate, onNewSession }: Props) {
+export function AccountCard({ account, recommended, busy, disabled, onActivate, onNewSession, onDelete }: Props) {
   const [now, setNow] = useState(() => Date.now())
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 60_000)
@@ -36,7 +37,8 @@ export function AccountCard({ account, recommended, busy, disabled, onActivate, 
     { label: '5-hour limit', usedPercent: account.usage?.fiveHourUsed, resetsAt: account.usage?.fiveHourResetsAt },
     { label: 'Weekly limit', usedPercent: account.usage?.weeklyUsed, resetsAt: account.usage?.weeklyResetsAt },
   ].filter((item): item is { label: string; usedPercent: number; resetsAt: number | null | undefined } => typeof item.usedPercent === 'number')
-  const unavailable = !account.authenticated || account.duplicate || account.usage?.allowed === false || account.usage?.status === 'blocked'
+  const unavailable = !account.authenticated || account.duplicate || account.usage?.allowed === false || account.usage?.status === 'blocked' || account.usage?.status === 'error'
+  const removable = account.id !== 'default' && !account.active && unavailable
   const status = account.duplicate ? 'duplicate' : !account.authenticated ? 'disconnected' : account.usage?.status ?? 'unknown'
   const unblockAt = status === 'blocked' ? expectedUnblockAt(account) : null
   const unblockWait = unblockAt == null ? null : timeUntil(unblockAt, now)
@@ -89,6 +91,8 @@ export function AccountCard({ account, recommended, busy, disabled, onActivate, 
             {busy ? 'Switching…' : unavailable ? 'Account unavailable' : 'Switch to account'} <ArrowIcon />
           </button>
         )}
+        {removable && <button className="button button--danger" disabled={disabled} onClick={() => onDelete(account)}>{busy ? 'Removing…' : 'Delete profile'}</button>}
+        {account.id === 'default' && <span className="account-protected">Default profile is protected</span>}
       </div>
     </article>
   )

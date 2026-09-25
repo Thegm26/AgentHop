@@ -16,6 +16,7 @@ class FakeProvider(ProviderAdapter):
         self.activated: str | None = None
         self.refresh_count = 0
         self.onboarded: str | None = None
+        self.removed: str | None = None
 
     def provider(self) -> ProviderModel:
         return ProviderModel(id=self.id, name=self.name, available=True)
@@ -51,10 +52,20 @@ class FakeProvider(ProviderAdapter):
     def onboard(self, account: str) -> str:
         if account == "existing":
             raise DuplicateAccountError("account already exists: existing")
-        if account != "new-account":
+        if account not in {"new-account", "account-01"}:
             raise ValueError("invalid account name")
         self.onboarded = account
         return "CODEX_HOME=/safe/profile codex login"
+
+    def default_account_name(self) -> str:
+        return "account-01"
+
+    def remove(self, account: str) -> None:
+        if account == "default":
+            raise ValueError("the default profile cannot be removed")
+        if account != "unusable":
+            raise ValueError("unknown account")
+        self.removed = account
 
     def command(self, account: str, mode: str, session_id: str | None = None) -> str:
         if account != "work":
@@ -146,7 +157,19 @@ def test_onboard_rejects_duplicates_invalid_names_and_unknown_providers() -> Non
     assert client.post(
         "/api/providers/missing/accounts", json={"account": "new-account"}
     ).status_code == 404
-    assert client.post("/api/providers/fake/accounts", json={"account": ""}).status_code == 422
+    generated = client.post("/api/providers/fake/accounts", json={"account": ""})
+    assert generated.status_code == 201
+    assert generated.json()["account"] == "account-01"
+
+
+def test_remove_account_rejects_default_and_reports_success() -> None:
+    client, provider = client_and_provider()
+
+    response = client.delete("/api/providers/fake/accounts/unusable")
+    assert response.status_code == 200
+    assert response.json() == {"provider": "fake", "account": "unusable", "removed": True}
+    assert provider.removed == "unusable"
+    assert client.delete("/api/providers/fake/accounts/default").status_code == 400
 
 
 def test_api_rejects_invalid_mode_and_unknown_provider() -> None:

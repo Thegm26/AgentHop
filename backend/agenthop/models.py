@@ -75,13 +75,19 @@ class ActivationResponse(APIModel):
 
 
 class OnboardRequest(APIModel):
-    account: str = Field(min_length=1, max_length=64)
+    account: str = Field(default="", max_length=64)
 
 
 class OnboardResponse(APIModel):
     provider: str
     account: str
     command: str
+
+
+class RemovalResponse(APIModel):
+    provider: str
+    account: str
+    removed: bool
 
 
 class HealthResponse(APIModel):

@@ -140,6 +140,8 @@ class CodexAdapter(ProviderAdapter):
                 Path(temporary).unlink(missing_ok=True)
 
     def onboard(self, account: str) -> str:
+        if not account.strip():
+            account = self.default_account_name()
         self._validate_account(account)
         if account == "default":
             raise ValueError("default is reserved for the existing Codex home")
@@ -161,6 +163,33 @@ class CodexAdapter(ProviderAdapter):
                 "login",
             ]
         )
+
+    def default_account_name(self) -> str:
+        """Choose a predictable unused local profile name for a blank UI entry."""
+        self._ensure_roots()
+        existing = {path.name for path in self.profile_root.iterdir()}
+        index = 1
+        while f"account-{index:02d}" in existing:
+            index += 1
+        return f"account-{index:02d}"
+
+    def remove(self, account: str) -> None:
+        """Remove one inactive, non-default profile without following symlinks."""
+        self._validate_account(account)
+        if account == "default":
+            raise ValueError("the default profile cannot be removed")
+        self._ensure_roots()
+        home = self.profile_root / account
+        if not home.is_dir() or home.is_symlink():
+            raise UnknownAccountError(f"unknown account: {account}")
+        if self._active() == account:
+            raise ValueError("cannot remove the active profile; switch accounts first")
+        # `home` is derived from a validated name and checked above. shutil.rmtree
+        # unlinks nested symlinks rather than traversing them on supported Python.
+        shutil.rmtree(home)
+        with self._cache_lock:
+            self._usage_cache.pop(account, None)
+            self._email_cache.pop(account, None)
 
     def _rpc_call(self, home: Path) -> tuple[dict[str, Any], dict[str, Any]]:
         if not self.binary:

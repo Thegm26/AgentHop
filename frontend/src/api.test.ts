@@ -24,6 +24,13 @@ describe('api', () => {
     }))
   })
 
+  it('deletes an encoded local profile', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({ provider: 'codex', account: 'account-01', removed: true }), { status: 200, headers: { 'Content-Type': 'application/json' } }))
+
+    await expect(api.remove('open ai', 'account/01')).resolves.toEqual({ provider: 'codex', account: 'account-01', removed: true })
+    expect(fetchMock).toHaveBeenCalledWith('/api/providers/open%20ai/accounts/account%2F01', expect.objectContaining({ method: 'DELETE' }))
+  })
+
   it('surfaces backend error details', async () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({ detail: 'Account is unavailable' }), { status: 409, headers: { 'Content-Type': 'application/json' } }))
 
