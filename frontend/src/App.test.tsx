@@ -1,4 +1,4 @@
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import App from './App'
@@ -33,7 +33,7 @@ describe('App', () => {
     expect(screen.getByRole('img', { name: 'AgentHop mascot meditating while companion agents work around it' })).toHaveAttribute('src', '/assets/agenthop-mascot.png')
     expect(screen.getByRole('link', { name: 'AgentHop home' })).toHaveTextContent('AgentHop')
     expect(screen.getByRole('link', { name: 'AgentHop home' }).querySelector('img')).toBeNull()
-    expect(fetchMock).toHaveBeenCalledWith('/api/refresh', expect.objectContaining({ method: 'POST' }))
+    expect(fetchMock).toHaveBeenCalledWith('/api/state', expect.any(Object))
     expect(screen.getByRole('heading', { name: 'work' })).toBeInTheDocument()
     expect(screen.getByText('work@example.com')).toBeInTheDocument()
     expect(screen.queryByText('Active')).not.toBeInTheDocument()
@@ -107,7 +107,27 @@ describe('App', () => {
     expect(screen.getByLabelText('Account categories')).toBeInTheDocument()
   })
 
-  it('polls every five seconds without overlapping requests and stops when unmounted', async () => {
+  it('loads cached state once, then refreshes live usage hourly or on demand', async () => {
+    vi.useFakeTimers()
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(json(state))
+    render(<App />)
+
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(screen.getByRole('button', { name: 'Refresh usage & resets' })).toBeInTheDocument()
+
+    await vi.advanceTimersByTimeAsync(3_599_999)
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    await vi.advanceTimersByTimeAsync(1)
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/refresh', expect.objectContaining({ method: 'POST' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh usage & resets' }))
+    expect(fetchMock).toHaveBeenCalledTimes(3)
+    expect(fetchMock).toHaveBeenNthCalledWith(1, '/api/state', expect.any(Object))
+    expect(fetchMock).toHaveBeenNthCalledWith(3, '/api/refresh', expect.objectContaining({ method: 'POST' }))
+  })
+
+  it('does not overlap hourly refreshes and clears the schedule on unmount', async () => {
     vi.useFakeTimers()
     let resolveRefresh: ((response: Response) => void) | undefined
     const fetchMock = vi.spyOn(globalThis, 'fetch')
@@ -117,20 +137,14 @@ describe('App', () => {
       }))
     const { unmount } = render(<App />)
 
-    expect(fetchMock).toHaveBeenCalledTimes(1)
-    await vi.advanceTimersByTimeAsync(0)
-    expect(screen.getByRole('button', { name: 'Refresh usage & resets' })).toBeInTheDocument()
-
-    await vi.advanceTimersByTimeAsync(5_000)
+    await vi.advanceTimersByTimeAsync(3_600_000)
     expect(fetchMock).toHaveBeenCalledTimes(2)
-    await vi.advanceTimersByTimeAsync(10_000)
+    await vi.advanceTimersByTimeAsync(3_600_000)
     expect(fetchMock).toHaveBeenCalledTimes(2)
-
-    resolveRefresh?.(json(state))
-    await vi.advanceTimersByTimeAsync(0)
 
     unmount()
-    await vi.advanceTimersByTimeAsync(10_000)
+    resolveRefresh?.(json(state))
+    await vi.advanceTimersByTimeAsync(3_600_000)
     expect(fetchMock).toHaveBeenCalledTimes(2)
   })
 
@@ -253,7 +267,7 @@ describe('App', () => {
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3))
     expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/providers/codex/accounts/personal/activate', expect.objectContaining({ method: 'POST' }))
-    expect(fetchMock).toHaveBeenNthCalledWith(3, '/api/refresh', expect.objectContaining({ method: 'POST' }))
+    expect(fetchMock).toHaveBeenNthCalledWith(3, '/api/state', expect.any(Object))
   })
 
   it('creates a profile and presents the browser-login command without collecting credentials', async () => {

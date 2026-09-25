@@ -85,7 +85,7 @@ def client_and_provider() -> tuple[TestClient, FakeProvider]:
 
 def test_health_and_state_schema() -> None:
     client, _ = client_and_provider()
-    assert client.get("/api/health").json() == {"status": "ok", "version": "0.3.0"}
+    assert client.get("/api/health").json() == {"status": "ok", "version": "0.4.0"}
 
     response = client.get("/api/state")
     assert response.status_code == 200

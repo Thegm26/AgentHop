@@ -21,6 +21,7 @@ BUILT_ICON = ROOT / "frontend" / "dist" / "assets" / "agenthop-mascot.png"
 SOURCE_ICON = ROOT / "frontend" / "public" / "assets" / "agenthop-mascot.png"
 ICON = BUILT_ICON if BUILT_ICON.is_file() else SOURCE_ICON
 HTTP_TIMEOUT = 4
+REFRESH_INTERVAL_SECONDS = 3_600
 
 
 def _is_safe_directory(path: Path) -> bool:
@@ -430,6 +431,7 @@ def main() -> int:
         ) -> bool:
             """GTK callback for the initial cached-state request."""
             nonlocal tray_state, tray_error, tray_loading
+            finish_operation()
             if shutting_down:
                 return False
             tray_loading = False
@@ -442,28 +444,10 @@ def main() -> int:
             rebuild_menu()
             return False
 
-        def finish_startup_refresh(
-            state: dict[str, Any] | None, error: str | None
-        ) -> bool:
-            """GTK callback after the startup worker has refreshed live usage."""
-            nonlocal tray_state, tray_error, tray_loading
-            finish_operation()
-            if shutting_down:
-                return False
-            tray_loading = False
-            if state is not None:
-                tray_state = state
-                tray_error = None
-            elif error:
-                tray_error = error
-                notify("AgentHop", f"Could not refresh accounts: {error}")
-            rebuild_menu()
-            return False
-
         def finish_refresh(
             state: dict[str, Any] | None, error: str | None
         ) -> bool:
-            """GTK callback for manual and periodic live refreshes."""
+            """GTK callback for a manual live refresh."""
             nonlocal tray_state, tray_error
             finish_operation()
             if shutting_down:
@@ -487,16 +471,20 @@ def main() -> int:
 
             if start_operation(refresh_worker, "agenthop-refresh"):
                 rebuild_menu()
-            # Keep GLib's recurring timer active, even while a request is in flight.
-            return True
+            return False
+
+        def refresh_accounts_hourly() -> bool:
+            """Refresh tray usage once per hour without overlapping work."""
+            refresh_accounts()
+            return not shutting_down
 
         def finish_switch(
             account_name: str,
             state: dict[str, Any] | None,
             activation_error: str | None,
-            refresh_error: str | None,
+            state_error: str | None,
         ) -> bool:
-            """GTK callback for an account activation and its follow-up refresh."""
+            """GTK callback for an account activation and cached-state update."""
             nonlocal tray_state, tray_error, switching_account
             finish_operation()
             if shutting_down:
@@ -510,9 +498,9 @@ def main() -> int:
                 if state is not None:
                     tray_state = state
                     tray_error = None
-                elif refresh_error:
-                    tray_error = refresh_error
-                    notify("AgentHop", f"Could not refresh accounts: {refresh_error}")
+                elif state_error:
+                    tray_error = state_error
+                    notify("AgentHop", f"Could not load accounts: {state_error}")
             rebuild_menu()
             return False
 
@@ -530,7 +518,7 @@ def main() -> int:
                     )
                     return
                 try:
-                    state = refresh_state(base_url)
+                    state = fetch_state(base_url)
                     GLib.idle_add(finish_switch, account_name, state, None, None)
                 except Exception as exc:
                     GLib.idle_add(finish_switch, account_name, None, None, str(exc))
@@ -545,13 +533,8 @@ def main() -> int:
                 try:
                     cached = fetch_state(base_url)
                     GLib.idle_add(publish_cached_accounts, cached, None)
-                except Exception as exc:  # A live refresh can still recover from this.
-                    GLib.idle_add(publish_cached_accounts, None, str(exc))
-                try:
-                    refreshed = refresh_state(base_url)
-                    GLib.idle_add(finish_startup_refresh, refreshed, None)
                 except Exception as exc:
-                    GLib.idle_add(finish_startup_refresh, None, str(exc))
+                    GLib.idle_add(publish_cached_accounts, None, str(exc))
 
             start_operation(startup_worker, "agenthop-startup")
 
@@ -577,8 +560,8 @@ def main() -> int:
         # second launcher invocation.
         rebuild_menu()
         start_initial_load()
+        GLib.timeout_add_seconds(REFRESH_INTERVAL_SECONDS, refresh_accounts_hourly)
         GLib.io_add_watch(server.fileno(), GLib.IO_IN, accept_control)
-        GLib.timeout_add_seconds(60, refresh_accounts)
         Gtk.main()
         return 0
     except (

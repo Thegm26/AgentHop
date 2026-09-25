@@ -1,6 +1,6 @@
 {
   "name": "@thegm26/agenthop",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Local, tray-first AI coding account switcher",
   "license": "MIT",
   "type": "module",

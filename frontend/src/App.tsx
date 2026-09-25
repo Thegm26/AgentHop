@@ -9,8 +9,6 @@ import { sortAccountsByUsability } from './accountOrdering'
 import { accountCategories } from './accountCategories'
 
 type ModalState = { command: string; title: string; description?: string } | null
-type RefreshOptions = { showSpinner?: boolean }
-
 function LoadingView() {
   return (
     <main className="main" aria-busy="true" aria-label="Loading AgentHop">
@@ -33,6 +31,7 @@ export default function App() {
   const [newAccount, setNewAccount] = useState('')
   const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null)
   const stateRequest = useRef(0)
+  const statePromise = useRef<Promise<void> | null>(null)
   const refreshPromise = useRef<Promise<void> | null>(null)
   const operationInProgress = useRef(false)
 
@@ -42,36 +41,27 @@ export default function App() {
     setProviderId((current) => next.providers.some((item) => item.id === current) ? current : next.providers[0]?.id ?? '')
   }, [])
 
-  const load = useCallback((options: RefreshOptions = {}) => {
-    if (refreshPromise.current) return refreshPromise.current
+  const load = useCallback(() => {
+    if (statePromise.current) return statePromise.current
     const requestId = ++stateRequest.current
     const request = (async () => {
-      if (options.showSpinner) setRefreshing(true)
       setError('')
       try {
-        const next = await api.refresh()
+        const next = await api.getState()
         applyState(next, requestId)
       } catch (reason) {
         if (requestId === stateRequest.current) setError(reason instanceof Error ? reason.message : 'Could not connect to AgentHop.')
-      } finally {
-        if (options.showSpinner) setRefreshing(false)
       }
     })()
-    refreshPromise.current = request
+    statePromise.current = request
     void request.finally(() => {
-      if (refreshPromise.current === request) refreshPromise.current = null
+      if (statePromise.current === request) statePromise.current = null
     })
     return request
   }, [applyState])
 
   useEffect(() => {
     void load()
-    const interval = window.setInterval(() => {
-      if (document.visibilityState !== 'hidden' && !operationInProgress.current) void load()
-    }, 5_000)
-    return () => {
-      window.clearInterval(interval)
-    }
   }, [load])
 
   useEffect(() => {
@@ -89,9 +79,37 @@ export default function App() {
     if (selectedCategoryId && !selectedCategory) setSelectedCategoryId(null)
   }, [selectedCategory, selectedCategoryId])
 
-  async function refresh() {
+  const refresh = useCallback(async () => {
     if (operationInProgress.current) return
-    await load({ showSpinner: true })
+    if (refreshPromise.current) return refreshPromise.current
+    const requestId = ++stateRequest.current
+    const request = (async () => {
+      setRefreshing(true)
+      setError('')
+      try {
+        applyState(await api.refresh(), requestId)
+      } catch (reason) {
+        if (requestId === stateRequest.current) setError(reason instanceof Error ? reason.message : 'Could not connect to AgentHop.')
+      } finally {
+        setRefreshing(false)
+      }
+    })()
+    refreshPromise.current = request
+    void request.finally(() => {
+      if (refreshPromise.current === request) refreshPromise.current = null
+    })
+    return request
+  }, [applyState])
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      void refresh()
+    }, 3_600_000)
+    return () => window.clearInterval(timer)
+  }, [refresh])
+
+  async function waitForStateRequests() {
+    await Promise.all([statePromise.current, refreshPromise.current])
   }
 
   async function activate(account: Account) {
@@ -101,7 +119,7 @@ export default function App() {
     setBusyKey(key)
     setError('')
     try {
-      await refreshPromise.current
+      await waitForStateRequests()
       await api.activate(account.provider, account.id)
       await load()
     } catch (reason) {
@@ -121,7 +139,7 @@ export default function App() {
     setBusyKey(key)
     setError('')
     try {
-      await refreshPromise.current
+      await waitForStateRequests()
       await api.redeemResetCredit(account.provider, account.id)
       await load()
     } catch (reason) {
@@ -142,7 +160,7 @@ export default function App() {
     setError('')
     let result: Awaited<ReturnType<typeof api.onboard>>
     try {
-      await refreshPromise.current
+      await waitForStateRequests()
       result = await api.onboard(providerId, account)
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Could not add the account.')
@@ -173,7 +191,7 @@ export default function App() {
     setBusyKey('remove')
     setError('')
     try {
-      await refreshPromise.current
+      await waitForStateRequests()
       await api.remove(account.provider, account.id)
       await load()
     } catch (reason) {
