@@ -196,7 +196,7 @@ def account_enabled(account: dict[str, Any]) -> bool:
         return False
     if not isinstance(usage, dict):
         return True
-    return usage.get("status") not in {"blocked", "error"} and usage.get("allowed") is not False
+    return usage.get("status") not in {"blocked", "error"}
 
 
 def account_order_group(account: dict[str, Any]) -> int:
@@ -207,8 +207,6 @@ def account_order_group(account: dict[str, Any]) -> int:
         return 3
     if status == "blocked":
         return 1 if expected_unblock_at(account) is not None else 2
-    if usage.get("allowed") is False:
-        return 2
     return 0
 
 

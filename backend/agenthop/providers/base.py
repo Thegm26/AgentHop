@@ -40,6 +40,9 @@ class ProviderAdapter(ABC):
     def remove(self, account: str) -> None:
         raise NotImplementedError("account removal is not supported by this provider")
 
+    def redeem_reset_credit(self, account: str) -> str:
+        raise NotImplementedError("usage-limit reset credits are not supported by this provider")
+
     @abstractmethod
     def command(
         self, account: str, mode: str, session_id: str | None = None

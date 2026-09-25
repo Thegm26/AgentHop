@@ -15,6 +15,7 @@ class UsageModel(APIModel):
     five_hour_resets_at: int | None = Field(None, alias="fiveHourResetsAt")
     weekly_used: int | None = Field(None, alias="weeklyUsed", ge=0, le=100)
     weekly_resets_at: int | None = Field(None, alias="weeklyResetsAt")
+    reset_credits_available: int = Field(0, alias="resetCreditsAvailable", ge=0)
     allowed: bool | None = None
     status: Literal["ready", "close", "critical", "blocked", "error", "unknown"]
     error: str | None = None
@@ -88,6 +89,10 @@ class RemovalResponse(APIModel):
     provider: str
     account: str
     removed: bool
+
+
+class RedeemResetResponse(APIModel):
+    outcome: Literal["reset", "nothingToReset", "alreadyRedeemed"]
 
 
 class HealthResponse(APIModel):

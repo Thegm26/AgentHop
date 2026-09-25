@@ -120,7 +120,7 @@ def test_account_sorting_labels_and_expected_unblock() -> None:
     )
 
 
-def test_tray_order_keeps_disallowed_and_error_accounts_after_blocked_accounts() -> None:
+def test_tray_order_uses_window_status_not_ordinary_usage_flag() -> None:
     state = {
         "accounts": [
             {
@@ -129,7 +129,7 @@ def test_tray_order_keeps_disallowed_and_error_accounts_after_blocked_accounts()
                 "usage": {
                     "status": "ready",
                     "allowed": False,
-                    "fiveHourUsed": 100,
+                    "fiveHourUsed": 32,
                     "fiveHourResetsAt": 1_900_000_000,
                 },
             },
@@ -146,8 +146,8 @@ def test_tray_order_keeps_disallowed_and_error_accounts_after_blocked_accounts()
         ],
     }
     accounts = desktop.sorted_accounts(state)
-    assert [account["id"] for account in accounts] == ["blocked", "disallowed", "error"]
-    assert desktop.tray_label(accounts[1]) == "disallowed — unavailable"
+    assert [account["id"] for account in accounts] == ["disallowed", "blocked", "error"]
+    assert desktop.tray_label(accounts[0]) == "disallowed — ready"
     assert desktop.tray_label(accounts[2]) == "error — error"
 
 

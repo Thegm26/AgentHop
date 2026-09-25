@@ -17,6 +17,7 @@ class FakeProvider(ProviderAdapter):
         self.refresh_count = 0
         self.onboarded: str | None = None
         self.removed: str | None = None
+        self.redeemed: str | None = None
 
     def provider(self) -> ProviderModel:
         return ProviderModel(id=self.id, name=self.name, available=True)
@@ -61,11 +62,15 @@ class FakeProvider(ProviderAdapter):
         return "account-01"
 
     def remove(self, account: str) -> None:
-        if account == "default":
-            raise ValueError("the default profile cannot be removed")
-        if account != "unusable":
+        if account not in {"default", "unusable"}:
             raise ValueError("unknown account")
         self.removed = account
+
+    def redeem_reset_credit(self, account: str) -> str:
+        if account != "work":
+            raise ValueError("unknown account")
+        self.redeemed = account
+        return "reset"
 
     def command(self, account: str, mode: str, session_id: str | None = None) -> str:
         if account != "work":
@@ -80,7 +85,7 @@ def client_and_provider() -> tuple[TestClient, FakeProvider]:
 
 def test_health_and_state_schema() -> None:
     client, _ = client_and_provider()
-    assert client.get("/api/health").json() == {"status": "ok", "version": "0.2.1"}
+    assert client.get("/api/health").json() == {"status": "ok", "version": "0.3.0"}
 
     response = client.get("/api/state")
     assert response.status_code == 200
@@ -129,6 +134,16 @@ def test_activate_and_command() -> None:
     assert response.json() == {"command": "fake resume session-1"}
 
 
+def test_redeem_reset_credit_returns_the_codex_outcome() -> None:
+    client, provider = client_and_provider()
+
+    response = client.post("/api/providers/fake/accounts/work/reset-credit/redeem")
+
+    assert response.status_code == 200
+    assert response.json() == {"outcome": "reset"}
+    assert provider.redeemed == "work"
+
+
 def test_onboard_returns_a_terminal_command_without_accepting_credentials() -> None:
     client, provider = client_and_provider()
 
@@ -162,14 +177,17 @@ def test_onboard_rejects_duplicates_invalid_names_and_unknown_providers() -> Non
     assert generated.json()["account"] == "account-01"
 
 
-def test_remove_account_rejects_default_and_reports_success() -> None:
+def test_remove_account_accepts_default_and_reports_success() -> None:
     client, provider = client_and_provider()
 
     response = client.delete("/api/providers/fake/accounts/unusable")
     assert response.status_code == 200
     assert response.json() == {"provider": "fake", "account": "unusable", "removed": True}
     assert provider.removed == "unusable"
-    assert client.delete("/api/providers/fake/accounts/default").status_code == 400
+    response = client.delete("/api/providers/fake/accounts/default")
+    assert response.status_code == 200
+    assert response.json() == {"provider": "fake", "account": "default", "removed": True}
+    assert provider.removed == "default"
 
 
 def test_api_rejects_invalid_mode_and_unknown_provider() -> None:

@@ -19,6 +19,7 @@ from agenthop.models import (
     HealthResponse,
     OnboardRequest,
     OnboardResponse,
+    RedeemResetResponse,
     RemovalResponse,
     StateModel,
 )
@@ -174,6 +175,31 @@ def create_app(service: AccountService | None = None) -> FastAPI:
                 status_code=500, detail=f"command preparation failed: {exc}"
             ) from exc
         return CommandResponse(command=value)
+
+    @app.post(
+        "/api/providers/{provider}/accounts/{account}/reset-credit/redeem",
+        response_model=RedeemResetResponse,
+    )
+    def redeem_reset_credit(provider: str, account: str) -> RedeemResetResponse:
+        try:
+            adapter = current_service().provider(provider)
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        try:
+            outcome = adapter.redeem_reset_credit(account)
+        except UnknownAccountError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except DuplicateAccountError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except NotImplementedError as exc:
+            raise HTTPException(status_code=501, detail=str(exc)) from exc
+        except (OSError, RuntimeError) as exc:
+            raise HTTPException(status_code=500, detail=f"reset redemption failed: {exc}") from exc
+        if outcome not in {"reset", "nothingToReset", "alreadyRedeemed"}:
+            raise HTTPException(status_code=500, detail="Codex returned an invalid reset outcome")
+        return RedeemResetResponse(outcome=outcome)
 
     if dist:
 

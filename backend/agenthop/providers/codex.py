@@ -37,6 +37,8 @@ SHARED_STATE_DIRS = (
 )
 DUPLICATE_MARKER = ".duplicate-of"
 ACTIVE_MARKER = ".active"
+DEFAULT_REMOVED_MARKER = ".default-removed"
+DEFAULT_ACCOUNT_FILES = ("auth.json", "config.toml", "config.json")
 
 
 class CodexAdapter(ProviderAdapter):
@@ -87,7 +89,7 @@ class CodexAdapter(ProviderAdapter):
 
     def _profiles(self) -> list[tuple[str, Path]]:
         self._ensure_roots()
-        profiles = [("default", self.default_home)]
+        profiles = [] if self._default_removed() else [("default", self.default_home)]
         profiles.extend(
             (path.name, path)
             for path in sorted(
@@ -97,8 +99,14 @@ class CodexAdapter(ProviderAdapter):
         )
         return profiles
 
+    def _default_removed(self) -> bool:
+        """Whether the built-in Codex home was removed from AgentHop's account list."""
+        return (self.profile_root / DEFAULT_REMOVED_MARKER).is_file()
+
     def _home(self, name: str) -> Path:
         self._validate_account(name)
+        if name == "default" and self._default_removed():
+            raise UnknownAccountError(f"unknown account: {name}")
         home = self.default_home if name == "default" else self.profile_root / name
         if not home.is_dir() or home.is_symlink():
             raise UnknownAccountError(f"unknown account: {name}")
@@ -114,7 +122,8 @@ class CodexAdapter(ProviderAdapter):
             self._home(name)
             return name
         except (OSError, ValueError, LookupError):
-            return "default"
+            profiles = self._profiles()
+            return profiles[0][0] if profiles else ""
 
     def activate(self, account: str) -> None:
         self._home(account)
@@ -143,11 +152,24 @@ class CodexAdapter(ProviderAdapter):
         if not account.strip():
             account = self.default_account_name()
         self._validate_account(account)
+        self._ensure_roots()
         if account == "default":
-            raise ValueError("default is reserved for the existing Codex home")
+            marker = self.profile_root / DEFAULT_REMOVED_MARKER
+            if not marker.is_file():
+                raise DuplicateAccountError("account already exists: default")
+            marker.unlink()
+            return " ".join(
+                [
+                    "env",
+                    'CODEX_HOME="$HOME/.codex"',
+                    "codex",
+                    "-c",
+                    shlex.quote('cli_auth_credentials_store="file"'),
+                    "login",
+                ]
+            )
         if not self.binary:
             raise RuntimeError("codex executable not found in PATH")
-        self._ensure_roots()
         home = self.profile_root / account
         try:
             home.mkdir(mode=0o700)
@@ -174,11 +196,25 @@ class CodexAdapter(ProviderAdapter):
         return f"account-{index:02d}"
 
     def remove(self, account: str) -> None:
-        """Remove one inactive, non-default profile without following symlinks."""
+        """Remove a profile without following symlinks.
+
+        Removing the default clears its account credentials/configuration while
+        retaining shared Codex state (such as sessions). Named profiles are
+        deleted from disk.
+        """
         self._validate_account(account)
-        if account == "default":
-            raise ValueError("the default profile cannot be removed")
         self._ensure_roots()
+        if account == "default":
+            for filename in DEFAULT_ACCOUNT_FILES:
+                path = self.default_home / filename
+                if path.is_file() and not path.is_symlink():
+                    path.unlink()
+            marker = self.profile_root / DEFAULT_REMOVED_MARKER
+            marker.touch(mode=0o600, exist_ok=True)
+            with self._cache_lock:
+                self._usage_cache.pop(account, None)
+                self._email_cache.pop(account, None)
+            return
         home = self.profile_root / account
         if not home.is_dir() or home.is_symlink():
             raise UnknownAccountError(f"unknown account: {account}")
@@ -220,7 +256,9 @@ class CodexAdapter(ProviderAdapter):
             {
                 "method": "account/rateLimits/read",
                 "id": 3,
-                "params": {"excludeResetCreditDetails": True},
+                # The details include the opaque credit IDs required for a later
+                # consume call. They remain local and are never returned by API.
+                "params": {"excludeResetCreditDetails": False},
             },
         )
         replies: dict[int, dict[str, Any]] = {}
@@ -280,6 +318,107 @@ class CodexAdapter(ProviderAdapter):
             if reader.is_alive():
                 reader.join(timeout=1)
 
+    def _rpc_consume_reset_credit(self, home: Path, credit_id: str) -> str:
+        if not credit_id:
+            raise ValueError("usage-limit reset credit is unavailable")
+        if not self.binary:
+            raise RuntimeError("codex executable not found in PATH")
+        env = os.environ.copy()
+        env["CODEX_HOME"] = str(home)
+        proc = subprocess.Popen(
+            [self.binary, "app-server", "--stdio"],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            env=env,
+        )
+        requests = (
+            {"method": "initialize", "id": 1, "params": {"clientInfo": {"name": "agenthop", "title": "AgentHop", "version": __version__}}},
+            {"method": "initialized", "params": {}},
+            {"method": "account/rateLimitResetCredit/consume", "id": 2, "params": {"creditId": credit_id}},
+        )
+        lines: queue.Queue[bytes | None] = queue.Queue()
+
+        def read_lines() -> None:
+            assert proc.stdout is not None
+            while True:
+                line = proc.stdout.readline(1024 * 1024 + 1)
+                lines.put(line or None)
+                if not line:
+                    return
+
+        reader = threading.Thread(target=read_lines, name="agenthop-codex-reset", daemon=True)
+        try:
+            assert proc.stdin is not None and proc.stdout is not None
+            proc.stdin.write(("\n".join(json.dumps(item, separators=(",", ":")) for item in requests) + "\n").encode())
+            proc.stdin.flush()
+            reader.start()
+            deadline = time.monotonic() + self.rpc_timeout
+            while time.monotonic() < deadline:
+                try:
+                    line = lines.get(timeout=max(0.0, deadline - time.monotonic()))
+                except queue.Empty:
+                    break
+                if line is None:
+                    break
+                if len(line) > 1024 * 1024:
+                    raise RuntimeError("Codex app-server response exceeded the size limit")
+                try:
+                    message = json.loads(line)
+                except (UnicodeDecodeError, json.JSONDecodeError):
+                    continue
+                if message.get("id") != 2:
+                    continue
+                if "error" in message:
+                    raise RuntimeError("Codex app-server request failed")
+                outcome = (message.get("result") or {}).get("outcome")
+                if outcome in {"reset", "nothingToReset", "alreadyRedeemed"}:
+                    return outcome
+                raise RuntimeError("Codex app-server returned an invalid reset outcome")
+            raise RuntimeError("Codex app-server timed out")
+        finally:
+            if proc.poll() is None:
+                proc.terminate()
+                try:
+                    proc.wait(timeout=1)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+                    proc.wait(timeout=1)
+            if reader.is_alive():
+                reader.join(timeout=1)
+
+    @staticmethod
+    def _reset_credit_ids(limits: dict[str, Any]) -> list[str]:
+        """Extract opaque credit IDs from Codex's versioned detail response."""
+        found: list[str] = []
+
+        def visit(value: Any) -> None:
+            if isinstance(value, dict):
+                credit_id = value.get("creditId")
+                if isinstance(credit_id, str) and credit_id and credit_id not in found:
+                    found.append(credit_id)
+                for child in value.values():
+                    visit(child)
+            elif isinstance(value, list):
+                for child in value:
+                    visit(child)
+
+        visit(limits.get("rateLimitResetCredits"))
+        return found
+
+    def redeem_reset_credit(self, account: str) -> str:
+        home = self._home(account)
+        if not (home / "auth.json").is_file():
+            raise ValueError("account is not logged in")
+        _account, limits = self._rpc_call(home)
+        credit_ids = self._reset_credit_ids(limits)
+        if not credit_ids:
+            raise ValueError("no usage-limit reset credit is available")
+        outcome = self._rpc_consume_reset_credit(home, credit_ids[0])
+        with self._cache_lock:
+            self._usage_cache.pop(account, None)
+        return outcome
+
     @staticmethod
     def _usage(account: dict[str, Any], limits: dict[str, Any]) -> UsageModel:
         snapshot = limits.get("rateLimits") or {}
@@ -298,8 +437,14 @@ class CodexAdapter(ProviderAdapter):
             if isinstance(value, int)
         ]
         allowed = limits.get("ordinaryUsageAllowed")
-        if allowed is False or any(value >= 100 for value in values):
+        # Recent Codex versions may report ordinaryUsageAllowed=false for a
+        # profile even while its actual rate-limit windows retain capacity.
+        # The per-window counters are authoritative for whether an account is
+        # exhausted; keep the flag as diagnostic data only.
+        if any(value >= 100 for value in values):
             status = "blocked"
+        elif not values:
+            status = "unknown"
         elif max(values, default=0) >= 95:
             status = "critical"
         elif max(values, default=0) >= 80:
@@ -307,12 +452,19 @@ class CodexAdapter(ProviderAdapter):
         else:
             status = "ready"
         account_data = account.get("account") or {}
+        reset_credits = limits.get("rateLimitResetCredits")
+        available_credits = (
+            reset_credits.get("availableCount")
+            if isinstance(reset_credits, dict)
+            else 0
+        )
         return UsageModel(
             plan=snapshot.get("planType") or account_data.get("planType"),
             fiveHourUsed=five.get("usedPercent"),
             fiveHourResetsAt=five.get("resetsAt"),
             weeklyUsed=week.get("usedPercent"),
             weeklyResetsAt=week.get("resetsAt"),
+            resetCreditsAvailable=available_credits if isinstance(available_credits, int) and available_credits >= 0 else 0,
             allowed=allowed if isinstance(allowed, bool) else None,
             status=status,
         )

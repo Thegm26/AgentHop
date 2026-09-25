@@ -13,6 +13,7 @@ export interface AccountUsage {
   fiveHourResetsAt?: number | null
   weeklyUsed?: number | null
   weeklyResetsAt?: number | null
+  resetCreditsAvailable?: number
   allowed?: boolean | null
   status: AccountStatus
   error?: string | null

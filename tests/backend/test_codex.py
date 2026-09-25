@@ -86,7 +86,7 @@ def test_onboard_creates_private_profile_and_returns_portable_login_command(
     assert not (profile / "auth.json").exists()
     with pytest.raises(DuplicateAccountError, match="already exists"):
         adapter.onboard("account-02")
-    with pytest.raises(ValueError, match="reserved"):
+    with pytest.raises(DuplicateAccountError, match="already exists"):
         adapter.onboard("default")
     with pytest.raises(ValueError, match="invalid account"):
         adapter.onboard("../escape")
@@ -97,15 +97,28 @@ def test_stale_active_marker_falls_back_to_default(adapter: CodexAdapter) -> Non
     assert adapter.accounts()[0].active is True
 
 
-def test_remove_profile_preserves_default_and_rejects_active(adapter: CodexAdapter) -> None:
+def test_remove_profile_hides_default_and_rejects_active_named_profile(adapter: CodexAdapter) -> None:
     profile = add_profile(adapter, "account-01")
+    (adapter.default_home / "auth.json").touch(mode=0o600)
+    (adapter.default_home / "config.toml").write_text('model = "gpt-5"\n')
+    (adapter.default_home / "sessions").mkdir()
     adapter.activate("account-01")
 
     with pytest.raises(ValueError, match="cannot remove the active profile"):
         adapter.remove("account-01")
     assert profile.exists()
-    with pytest.raises(ValueError, match="default profile cannot be removed"):
-        adapter.remove("default")
+    adapter.remove("default")
+    assert adapter.default_home.exists()
+    assert not (adapter.default_home / "auth.json").exists()
+    assert not (adapter.default_home / "config.toml").exists()
+    assert (adapter.default_home / "sessions").exists()
+    assert [account.id for account in adapter.accounts()] == ["account-01"]
+    with pytest.raises(LookupError, match="unknown account"):
+        adapter.activate("default")
+
+    command = adapter.onboard("default")
+    assert 'CODEX_HOME="$HOME/.codex"' in command
+    assert [account.id for account in adapter.accounts()] == ["default", "account-01"]
 
     adapter.activate("default")
     adapter.remove("account-01")
@@ -274,6 +287,56 @@ def test_usage_mapping_and_status() -> None:
     assert usage.status == "critical"
     assert usage.plan == "plus"
     assert usage.five_hour_used == 96
+
+
+def test_usage_exposes_available_reset_credit_count_without_credit_ids() -> None:
+    usage = CodexAdapter._usage(
+        {"account": {"planType": "plus"}},
+        {
+            "rateLimits": {},
+            "rateLimitResetCredits": {
+                "availableCount": 1,
+                "credits": [{"creditId": "opaque-credit-id"}],
+            },
+        },
+    )
+
+    assert usage.reset_credits_available == 1
+    assert "opaque-credit-id" not in usage.model_dump_json()
+    assert CodexAdapter._reset_credit_ids({"rateLimitResetCredits": {"credits": [{"creditId": "opaque-credit-id"}]}}) == ["opaque-credit-id"]
+
+
+def test_usage_uses_window_exhaustion_not_ordinary_usage_flag() -> None:
+    usage = CodexAdapter._usage(
+        {"account": {"planType": "plus"}},
+        {
+            "ordinaryUsageAllowed": False,
+            "rateLimits": {
+                "primary": {
+                    "windowDurationMins": 300,
+                    "usedPercent": 32,
+                    "resetsAt": 100,
+                },
+                "secondary": {
+                    "windowDurationMins": 10080,
+                    "usedPercent": 75,
+                    "resetsAt": 200,
+                },
+            },
+        },
+    )
+
+    assert usage.status == "ready"
+    assert usage.allowed is False
+
+
+def test_usage_without_limit_windows_is_unknown_not_blocked() -> None:
+    usage = CodexAdapter._usage(
+        {"account": {"planType": "plus"}},
+        {"ordinaryUsageAllowed": False, "rateLimits": {}},
+    )
+
+    assert usage.status == "unknown"
 
 
 def test_refresh_regenerates_usage_and_state_keeps_the_last_snapshot(

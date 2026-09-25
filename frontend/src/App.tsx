@@ -85,7 +85,7 @@ export default function App() {
   const displayedAccounts = selectedCategory ? selectedCategory.accounts : accounts
   const provider = state?.providers.find((item) => item.id === providerId)
   const canOnboard = providerId === 'codex' && Boolean(provider?.available) && !provider?.error
-  const cleanupCandidates = accounts.filter((account) => account.id !== 'default' && !account.active && (!account.authenticated || account.duplicate || account.usage?.allowed === false || account.usage?.status === 'blocked' || account.usage?.status === 'error'))
+  const cleanupCandidates = accounts.filter((account) => account.id !== 'default' && !account.active && (!account.authenticated || account.duplicate || account.usage?.status === 'blocked' || account.usage?.status === 'error'))
 
   useEffect(() => {
     if (selectedCategoryId && !selectedCategory) setSelectedCategoryId(null)
@@ -132,6 +132,26 @@ export default function App() {
     }
   }
 
+  async function redeemResetCredit(account: Account) {
+    if (operationInProgress.current) return
+    const available = account.usage?.resetCreditsAvailable ?? 0
+    if (!available || !window.confirm(`Redeem usage limit reset? You have ${available} usage limit reset${available === 1 ? '' : 's'} available.`)) return
+    const key = `reset-credit:${account.provider}:${account.id}`
+    operationInProgress.current = true
+    setBusyKey(key)
+    setError('')
+    try {
+      await refreshPromise.current
+      await api.redeemResetCredit(account.provider, account.id)
+      await load()
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Could not redeem the usage-limit reset.')
+    } finally {
+      operationInProgress.current = false
+      setBusyKey((current) => current === key ? '' : current)
+    }
+  }
+
   async function onboard(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     const account = newAccount.trim()
@@ -152,7 +172,7 @@ export default function App() {
     }
     setAddingAccount(false)
     setNewAccount('')
-    setModal({ command: result.command, title: `Connect ${result.account}`, description: 'Run this in your terminal and complete the Codex sign-in in your browser. Then return here and click Refresh usage.' })
+    setModal({ command: result.command, title: `Connect ${result.account}`, description: 'Run this in your terminal and complete the Codex sign-in in your browser. Then return here and refresh usage and reset times.' })
     await load()
     operationInProgress.current = false
     setBusyKey('')
@@ -166,7 +186,9 @@ export default function App() {
   async function removeAccounts(items: Account[]) {
     if (!items.length || operationInProgress.current) return
     const names = items.map((item) => item.id).join(', ')
-    const prompt = items.length === 1
+    const prompt = items[0]?.id === 'default'
+      ? 'Delete the default profile? Its Codex credentials and configuration will be removed; sessions and shared state will stay on disk.'
+      : items.length === 1
       ? `Delete profile “${names}”? Its local Codex data will be permanently removed.`
       : `Delete ${items.length} unusable profiles (${names})? Their local Codex data will be permanently removed.`
     if (!window.confirm(prompt)) return
@@ -205,7 +227,7 @@ export default function App() {
           )}
           <button className="refresh-button" onClick={() => void refresh()} disabled={refreshing || Boolean(busyKey)}>
             <RefreshIcon className={refreshing ? 'spin' : ''} aria-hidden="true" />
-            <span>{refreshing ? 'Refreshing…' : 'Refresh usage'}</span>
+            <span>{refreshing ? 'Refreshing…' : 'Refresh usage & resets'}</span>
           </button>
         </div>
       </header>
@@ -265,7 +287,7 @@ export default function App() {
                 <>
                 <div className="account-grid">
                   {displayedAccounts.map((account) => (
-                    <AccountCard key={account.id} account={account} recommended={account.id === recommendedId} busy={busyKey === `account:${account.provider}:${account.id}` || busyKey === `command:${account.provider}:${account.id}` || busyKey === 'remove'} disabled={Boolean(busyKey) || refreshing} onActivate={(item) => void activate(item)} onNewSession={(item) => void getCommand(item)} onDelete={(item) => void removeAccounts([item])} />
+                    <AccountCard key={account.id} account={account} recommended={account.id === recommendedId} busy={busyKey === `account:${account.provider}:${account.id}` || busyKey === `command:${account.provider}:${account.id}` || busyKey === `reset-credit:${account.provider}:${account.id}` || busyKey === 'remove'} disabled={Boolean(busyKey) || refreshing} onActivate={(item) => void activate(item)} onNewSession={(item) => void getCommand(item)} onDelete={(item) => void removeAccounts([item])} onRedeemResetCredit={(item) => void redeemResetCredit(item)} />
                   ))}
                 </div>
                 </>

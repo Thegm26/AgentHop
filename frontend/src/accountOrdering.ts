@@ -32,7 +32,6 @@ function isBlocked(account: Account) {
 function orderGroup(account: Account) {
   if (!account.authenticated || account.duplicate || isError(account)) return 3
   if (isBlocked(account)) return expectedUnblockAt(account) == null ? 2 : 1
-  if (account.usage?.allowed === false) return 2
   return 0
 }
 

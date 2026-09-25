@@ -38,7 +38,7 @@ describe('App', () => {
     expect(screen.getByText('work@example.com')).toBeInTheDocument()
     expect(screen.getByText('Suggested profile')).toBeInTheDocument()
     expect(screen.queryByText('Available profile')).not.toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Refresh usage' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Refresh usage & resets' })).toBeInTheDocument()
     expect(screen.queryByText('Account control center')).not.toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: 'Recent sessions' })).not.toBeInTheDocument()
     expect(screen.getAllByRole('progressbar')).toHaveLength(4)
@@ -99,7 +99,7 @@ describe('App', () => {
     render(<App />)
 
     await userEvent.click(await screen.findByRole('button', { name: 'Plus (1)' }))
-    await userEvent.click(screen.getByRole('button', { name: 'Refresh usage' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Refresh usage & resets' }))
 
     expect(await screen.findByRole('heading', { name: 'default' })).toBeInTheDocument()
     expect(screen.getByLabelText('Account categories')).toBeInTheDocument()
@@ -117,7 +117,7 @@ describe('App', () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(1)
     await vi.advanceTimersByTimeAsync(0)
-    expect(screen.getByRole('button', { name: 'Refresh usage' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Refresh usage & resets' })).toBeInTheDocument()
 
     await vi.advanceTimersByTimeAsync(5_000)
     expect(fetchMock).toHaveBeenCalledTimes(2)
@@ -165,14 +165,51 @@ describe('App', () => {
     render(<App />)
 
     expect(await screen.findByLabelText('Account state: blocked')).toHaveTextContent(/blocked/i)
+    expect(screen.getByText('Usage & resets')).toBeInTheDocument()
     expect(screen.getByText('5-hour limit')).toBeInTheDocument()
     expect(screen.getByText('Weekly limit')).toBeInTheDocument()
-    expect(screen.getByText('100% left')).toBeInTheDocument()
-    expect(screen.getByText('0% left')).toBeInTheDocument()
-    expect(screen.getByText('Resets in 5h 30m')).toBeInTheDocument()
-    expect(screen.getByText('Resets in 2d 3h')).toBeInTheDocument()
+    expect(screen.getAllByText('Remaining')).toHaveLength(2)
+    expect(screen.getAllByRole('progressbar')).toHaveLength(2)
+    expect(screen.getByRole('progressbar', { name: '5-hour limit remaining capacity' })).toHaveAttribute('aria-valuenow', '100')
+    expect(screen.getByRole('progressbar', { name: 'Weekly limit remaining capacity' })).toHaveAttribute('aria-valuenow', '0')
+    expect(screen.getByText('0%')).toBeInTheDocument()
+    expect(screen.getAllByText('Reset')).toHaveLength(2)
+    expect(screen.getByText(/\(in 5h 30m\)/)).toBeInTheDocument()
+    expect(screen.getByText(/\(in 2d 3h\)/)).toBeInTheDocument()
+    expect(screen.getAllByRole('time')).toHaveLength(2)
     expect(screen.getByText('Expected unblock in 2d 3h')).toBeInTheDocument()
-    expect(screen.queryByLabelText(/percent remaining/)).not.toBeInTheDocument()
+    expect(screen.getByLabelText('5-hour limit remaining capacity and reset details')).toBeInTheDocument()
+  })
+
+  it('keeps a profile usable when Codex reports a false ordinary-usage flag but its windows have capacity', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(json({
+      ...state,
+      accounts: [{ provider: 'codex', id: 'work', active: true, authenticated: true, duplicate: false, usage: { fiveHourUsed: 32, weeklyUsed: 75, allowed: false, status: 'ready' } }],
+      recommendation: null,
+    }))
+    render(<App />)
+
+    expect(await screen.findByRole('button', { name: /Start new session/i })).toBeEnabled()
+    expect(screen.getByText('68%')).toBeInTheDocument()
+    expect(screen.getByText('25%')).toBeInTheDocument()
+  })
+
+  it('redeems an available usage-limit reset only after confirmation', async () => {
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true)
+    const creditState = {
+      ...state,
+      accounts: [{ ...state.accounts[0], usage: { ...state.accounts[0].usage, resetCreditsAvailable: 1 } }],
+    }
+    const fetchMock = vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(json(creditState))
+      .mockResolvedValueOnce(json({ outcome: 'reset' }))
+      .mockResolvedValueOnce(json({ ...creditState, accounts: [{ ...creditState.accounts[0], usage: { ...creditState.accounts[0].usage, resetCreditsAvailable: 0 } }] }))
+    render(<App />)
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Redeem usage limit reset (1)' }))
+
+    expect(confirm).toHaveBeenCalledWith('Redeem usage limit reset? You have 1 usage limit reset available.')
+    expect(fetchMock).toHaveBeenCalledWith('/api/providers/codex/accounts/work/reset-credit/redeem', expect.objectContaining({ method: 'POST' }))
   })
 
   it('uses the 5-hour reset when weekly capacity remains', async () => {
@@ -279,7 +316,7 @@ describe('App', () => {
     expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/providers/codex/accounts', expect.objectContaining({ body: JSON.stringify({ account: '' }) }))
   })
 
-  it('confirms before deleting inactive unusable profiles and never exposes delete for default or active profiles', async () => {
+  it('confirms before deleting the default profile or inactive unusable profiles', async () => {
     const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true)
     const unusableState = {
       ...state,
@@ -292,15 +329,14 @@ describe('App', () => {
     }
     const fetchMock = vi.spyOn(globalThis, 'fetch')
       .mockResolvedValueOnce(json(unusableState))
-      .mockResolvedValueOnce(json({ provider: 'codex', account: 'account-03', removed: true }))
+      .mockResolvedValueOnce(json({ provider: 'codex', account: 'default', removed: true }))
       .mockResolvedValueOnce(json({ ...unusableState, accounts: [unusableState.accounts[0], unusableState.accounts[2]] }))
     render(<App />)
 
-    await userEvent.click(await screen.findByRole('button', { name: 'Delete profile' }))
+    await userEvent.click((await screen.findAllByRole('button', { name: 'Delete profile' }))[0])
 
-    expect(confirm).toHaveBeenCalled()
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith('/api/providers/codex/accounts/account-03', expect.objectContaining({ method: 'DELETE' })))
-    await waitFor(() => expect(screen.queryAllByRole('button', { name: 'Delete profile' })).toHaveLength(0))
+    expect(confirm).toHaveBeenCalledWith('Delete the default profile? Its Codex credentials and configuration will be removed; sessions and shared state will stay on disk.')
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith('/api/providers/codex/accounts/default', expect.objectContaining({ method: 'DELETE' })))
   })
 
   it('keeps a successful profile creation visible when the follow-up refresh fails', async () => {

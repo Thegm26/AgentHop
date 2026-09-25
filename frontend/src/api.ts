@@ -49,6 +49,11 @@ export const api = {
       `/api/providers/${encodeURIComponent(providerId)}/accounts/${encodeURIComponent(accountId)}/activate`,
       { method: 'POST' },
     ),
+  redeemResetCredit: (providerId: string, accountId: string) =>
+    request<{ outcome: 'reset' | 'nothingToReset' | 'alreadyRedeemed' }>(
+      `/api/providers/${encodeURIComponent(providerId)}/accounts/${encodeURIComponent(accountId)}/reset-credit/redeem`,
+      { method: 'POST' },
+    ),
   command: (providerId: string, accountId: string, mode: CommandMode, sessionId?: string) =>
     request<{ command: string }>(
       `/api/providers/${encodeURIComponent(providerId)}/accounts/${encodeURIComponent(accountId)}/command`,
