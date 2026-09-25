@@ -36,6 +36,7 @@ describe('App', () => {
     expect(fetchMock).toHaveBeenCalledWith('/api/refresh', expect.objectContaining({ method: 'POST' }))
     expect(screen.getByRole('heading', { name: 'work' })).toBeInTheDocument()
     expect(screen.getByText('work@example.com')).toBeInTheDocument()
+    expect(screen.queryByText('Active')).not.toBeInTheDocument()
     expect(screen.getByText('Suggested profile')).toBeInTheDocument()
     expect(screen.queryByText('Available profile')).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Refresh usage & resets' })).toBeInTheDocument()
@@ -74,6 +75,7 @@ describe('App', () => {
     expect(screen.getByRole('heading', { name: 'personal' })).toBeInTheDocument()
     expect(screen.getAllByLabelText('Account state: disconnected')).toHaveLength(2)
     expect(screen.getAllByText('No email connected')).toHaveLength(2)
+    expect(screen.queryByRole('button', { name: /Clean unavailable/i })).not.toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: 'Plus (1)' }))
 
     expect(screen.getByRole('heading', { name: 'account-01' })).toBeInTheDocument()
@@ -165,13 +167,16 @@ describe('App', () => {
     render(<App />)
 
     expect(await screen.findByLabelText('Account state: blocked')).toHaveTextContent(/blocked/i)
-    expect(screen.getByText('Usage & resets')).toBeInTheDocument()
+    expect(screen.queryByText('Usage & resets')).not.toBeInTheDocument()
+    expect(screen.queryByText('Reported by Codex')).not.toBeInTheDocument()
     expect(screen.getByText('5-hour limit')).toBeInTheDocument()
     expect(screen.getByText('Weekly limit')).toBeInTheDocument()
     expect(screen.getAllByText('Remaining')).toHaveLength(2)
     expect(screen.getAllByRole('progressbar')).toHaveLength(2)
     expect(screen.getByRole('progressbar', { name: '5-hour limit remaining capacity' })).toHaveAttribute('aria-valuenow', '100')
     expect(screen.getByRole('progressbar', { name: 'Weekly limit remaining capacity' })).toHaveAttribute('aria-valuenow', '0')
+    expect(screen.getByRole('progressbar', { name: '5-hour limit remaining capacity' })).toHaveClass('capacity-bar--healthy')
+    expect(screen.getByRole('progressbar', { name: 'Weekly limit remaining capacity' })).toHaveClass('capacity-bar--exhausted')
     expect(screen.getByText('0%')).toBeInTheDocument()
     expect(screen.getAllByText('Reset')).toHaveLength(2)
     expect(screen.getByText(/\(in 5h 30m\)/)).toBeInTheDocument()
@@ -189,7 +194,8 @@ describe('App', () => {
     }))
     render(<App />)
 
-    expect(await screen.findByRole('button', { name: /Start new session/i })).toBeEnabled()
+    expect(await screen.findByRole('heading', { name: 'work' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Start new session/i })).not.toBeInTheDocument()
     expect(screen.getByText('68%')).toBeInTheDocument()
     expect(screen.getByText('25%')).toBeInTheDocument()
   })
@@ -236,22 +242,6 @@ describe('App', () => {
     expect(await screen.findByText('Expected unblock in 2d 0h')).toBeInTheDocument()
   })
 
-  it('falls back to legacy clipboard copying when the Clipboard API is unavailable', async () => {
-    vi.spyOn(globalThis, 'fetch')
-      .mockResolvedValueOnce(json(state))
-      .mockResolvedValueOnce(json({ command: 'codex new' }))
-    const execCommand = vi.fn(() => true)
-    Object.defineProperty(document, 'execCommand', { configurable: true, value: execCommand })
-    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: undefined })
-    render(<App />)
-
-    await userEvent.click(await screen.findByRole('button', { name: /start new session/i }))
-    await userEvent.click(await screen.findByRole('button', { name: 'Copy command' }))
-
-    expect(execCommand).toHaveBeenCalledWith('copy')
-    expect(screen.getByText('Copied')).toBeInTheDocument()
-  })
-
   it('switches accounts and reloads state', async () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch')
       .mockResolvedValueOnce(json(state))
@@ -259,7 +249,7 @@ describe('App', () => {
       .mockResolvedValueOnce(json(state))
     render(<App />)
 
-    await userEvent.click(await screen.findByRole('button', { name: /switch to account/i }))
+    await userEvent.click(await screen.findByRole('button', { name: /switch to this/i }))
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3))
     expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/providers/codex/accounts/personal/activate', expect.objectContaining({ method: 'POST' }))

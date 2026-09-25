@@ -9,7 +9,6 @@ interface Props {
   busy: boolean
   disabled: boolean
   onActivate: (account: Account) => void
-  onNewSession: (account: Account) => void
   onDelete: (account: Account) => void
   onRedeemResetCredit: (account: Account) => void
 }
@@ -35,7 +34,13 @@ function localResetTime(value: number | null | undefined) {
   return date.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
 }
 
-export function AccountCard({ account, recommended, busy, disabled, onActivate, onNewSession, onDelete, onRedeemResetCredit }: Props) {
+function capacityState(remaining: number) {
+  if (remaining === 0) return 'exhausted'
+  if (remaining <= 20) return 'low'
+  return 'healthy'
+}
+
+export function AccountCard({ account, recommended, busy, disabled, onActivate, onDelete, onRedeemResetCredit }: Props) {
   const [now, setNow] = useState(() => Date.now())
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 60_000)
@@ -59,7 +64,6 @@ export function AccountCard({ account, recommended, busy, disabled, onActivate, 
         <div className="account-identity">
           <div className="account-name-row">
             <h3>{account.id}</h3>
-            {account.active && <span className="pill pill--active"><span /> Active</span>}
             {recommended && <span className="pill pill--recommended"><SparkIcon /> Suggested profile</span>}
           </div>
           <p>{email}</p>
@@ -71,21 +75,18 @@ export function AccountCard({ account, recommended, busy, disabled, onActivate, 
       </div>
 
       <div className="usage-list" aria-label="Usage and reset details">
-        <div className="usage-list__heading">
-          <strong>Usage &amp; resets</strong>
-          <span>Reported by Codex</span>
-        </div>
         {windows.length === 0 ? (
           <div className="usage-empty">{account.usage?.error || 'Usage data hasn’t arrived yet.'}</div>
         ) : windows.map((window) => {
           const percentage = Math.min(100, Math.max(0, window.usedPercent))
           const remaining = Math.round(100 - percentage)
+          const capacity = capacityState(remaining)
           const resetWait = timeUntil(window.resetsAt, now)
           const resetAt = localResetTime(window.resetsAt)
           return (
             <div className="usage-item" key={window.label}>
               <div className="usage-item__labels"><strong>{window.label}</strong></div>
-              <div className="capacity-bar" role="progressbar" aria-label={`${window.label} remaining capacity`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={remaining}>
+              <div className={`capacity-bar capacity-bar--${capacity}`} role="progressbar" aria-label={`${window.label} remaining capacity`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={remaining}>
                 <span style={{ width: `${remaining}%` }} />
               </div>
               <dl className="usage-details" aria-label={`${window.label} remaining capacity and reset details`}>
@@ -102,11 +103,9 @@ export function AccountCard({ account, recommended, busy, disabled, onActivate, 
       <div className="account-actions">
         {(account.usage?.resetCreditsAvailable ?? 0) > 0 && <button className="button button--secondary" disabled={disabled} onClick={() => onRedeemResetCredit(account)}>{busy ? 'Redeeming…' : `Redeem usage limit reset (${account.usage?.resetCreditsAvailable})`}</button>}
         {account.duplicate && <span className="account-warning">Duplicate credentials</span>}
-        {account.active ? (
-          <button className="button button--primary" disabled={unavailable || disabled} onClick={() => onNewSession(account)}>{busy ? 'Preparing…' : unavailable ? 'Account unavailable' : 'Start new session'} <ArrowIcon /></button>
-        ) : (
+        {!account.active && (
           <button className="button button--secondary" disabled={disabled || unavailable} onClick={() => onActivate(account)}>
-            {busy ? 'Switching…' : unavailable ? 'Account unavailable' : 'Switch to account'} <ArrowIcon />
+            {busy ? 'Switching…' : unavailable ? 'Account unavailable' : 'Switch to this'} <ArrowIcon />
           </button>
         )}
         {removable && <button className="button button--danger" disabled={disabled} onClick={() => onDelete(account)}>{busy ? 'Removing…' : 'Delete profile'}</button>}

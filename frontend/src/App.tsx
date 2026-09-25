@@ -85,8 +85,6 @@ export default function App() {
   const displayedAccounts = selectedCategory ? selectedCategory.accounts : accounts
   const provider = state?.providers.find((item) => item.id === providerId)
   const canOnboard = providerId === 'codex' && Boolean(provider?.available) && !provider?.error
-  const cleanupCandidates = accounts.filter((account) => account.id !== 'default' && !account.active && (!account.authenticated || account.duplicate || account.usage?.status === 'blocked' || account.usage?.status === 'error'))
-
   useEffect(() => {
     if (selectedCategoryId && !selectedCategory) setSelectedCategoryId(null)
   }, [selectedCategory, selectedCategoryId])
@@ -108,24 +106,6 @@ export default function App() {
       await load()
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Could not switch accounts.')
-    } finally {
-      operationInProgress.current = false
-      setBusyKey((current) => current === key ? '' : current)
-    }
-  }
-
-  async function getCommand(account: Pick<Account, 'provider' | 'id'>) {
-    if (operationInProgress.current) return
-    const key = `command:${account.provider}:${account.id}`
-    operationInProgress.current = true
-    setBusyKey(key)
-    setError('')
-    try {
-      await refreshPromise.current
-      const result = await api.command(account.provider, account.id, 'new')
-      setModal({ command: result.command, title: `New session with ${account.id}` })
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'Could not create the command.')
     } finally {
       operationInProgress.current = false
       setBusyKey((current) => current === key ? '' : current)
@@ -183,21 +163,18 @@ export default function App() {
     setNewAccount('')
   }
 
-  async function removeAccounts(items: Account[]) {
-    if (!items.length || operationInProgress.current) return
-    const names = items.map((item) => item.id).join(', ')
-    const prompt = items[0]?.id === 'default'
+  async function removeAccount(account: Account) {
+    if (operationInProgress.current) return
+    const prompt = account.id === 'default'
       ? 'Delete the default profile? Its Codex credentials and configuration will be removed; sessions and shared state will stay on disk.'
-      : items.length === 1
-      ? `Delete profile “${names}”? Its local Codex data will be permanently removed.`
-      : `Delete ${items.length} unusable profiles (${names})? Their local Codex data will be permanently removed.`
+      : `Delete profile “${account.id}”? Its local Codex data will be permanently removed.`
     if (!window.confirm(prompt)) return
     operationInProgress.current = true
     setBusyKey('remove')
     setError('')
     try {
       await refreshPromise.current
-      for (const account of items) await api.remove(account.provider, account.id)
+      await api.remove(account.provider, account.id)
       await load()
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Could not remove the profile.')
@@ -265,7 +242,6 @@ export default function App() {
               <div className="section-heading">
                 <div><p className="section-kicker">{provider?.name ?? 'Provider'}</p><h2 id="accounts-heading">Your accounts</h2></div>
                 <div className="section-actions">
-                  {cleanupCandidates.length > 0 && <button className="button button--danger" onClick={() => void removeAccounts(cleanupCandidates)} disabled={Boolean(busyKey) || refreshing}>Clean unavailable ({cleanupCandidates.length})</button>}
                   {providerId === 'codex' && <button className="button button--secondary" onClick={() => setAddingAccount((current) => !current)} disabled={!canOnboard || Boolean(busyKey) || refreshing}>Add account</button>}
                 </div>
               </div>
@@ -287,7 +263,7 @@ export default function App() {
                 <>
                 <div className="account-grid">
                   {displayedAccounts.map((account) => (
-                    <AccountCard key={account.id} account={account} recommended={account.id === recommendedId} busy={busyKey === `account:${account.provider}:${account.id}` || busyKey === `command:${account.provider}:${account.id}` || busyKey === `reset-credit:${account.provider}:${account.id}` || busyKey === 'remove'} disabled={Boolean(busyKey) || refreshing} onActivate={(item) => void activate(item)} onNewSession={(item) => void getCommand(item)} onDelete={(item) => void removeAccounts([item])} onRedeemResetCredit={(item) => void redeemResetCredit(item)} />
+                    <AccountCard key={account.id} account={account} recommended={account.id === recommendedId} busy={busyKey === `account:${account.provider}:${account.id}` || busyKey === `reset-credit:${account.provider}:${account.id}` || busyKey === 'remove'} disabled={Boolean(busyKey) || refreshing} onActivate={(item) => void activate(item)} onDelete={(item) => void removeAccount(item)} onRedeemResetCredit={(item) => void redeemResetCredit(item)} />
                   ))}
                 </div>
                 </>
