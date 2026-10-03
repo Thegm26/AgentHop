@@ -11,10 +11,22 @@ from agenthop import auto, cli
 from agenthop.models import AccountModel, ProviderModel, UsageModel
 
 
-def account(name: str, status: str, *, active: bool = False, duplicate: bool = False, authenticated: bool = True) -> AccountModel:
+def account(
+    name: str,
+    status: str,
+    *,
+    active: bool = False,
+    duplicate: bool = False,
+    authenticated: bool = True,
+    five_hour_used: int | None = None,
+    weekly_used: int | None = None,
+) -> AccountModel:
     return AccountModel(
         provider="codex", id=name, active=active, authenticated=authenticated,
-        duplicate=duplicate, usage=UsageModel(status=status),
+        duplicate=duplicate,
+        usage=UsageModel(
+            status=status, fiveHourUsed=five_hour_used, weeklyUsed=weekly_used
+        ),
     )
 
 
@@ -79,18 +91,20 @@ def test_cli_parses_auto_options_and_passthrough() -> None:
     parsed = cli.build_parser().parse_args(
         [
             "auto", "--poll-interval", "12", "--continue-prompt", "go",
-            "--review-drain-grace", "10", "--", "resume", "root-1",
+            "--review-drain-grace", "10", "--review-drain-threshold", "85",
+            "--", "resume", "root-1",
         ]
     )
     assert parsed.command == "auto"
     assert parsed.poll_interval == 12
     assert parsed.continue_prompt == "go"
     assert parsed.review_drain_grace == 10
+    assert parsed.review_drain_threshold == 85
     assert parsed.codex_args == ["--", "resume", "root-1"]
 
 
-def test_critical_usage_queues_one_review_drain_and_allows_grace() -> None:
-    adapter = Adapter({"one": "critical"})
+def test_review_drain_queues_one_request_and_allows_grace() -> None:
+    adapter = Adapter({"one": "ready"})
     child = Process(None)
     queued: list[tuple[list[str], dict]] = []
     waits: list[float] = []
@@ -118,6 +132,22 @@ def test_critical_usage_queues_one_review_drain_and_allows_grace() -> None:
     assert queued[0][1]["env"]["CODEX_HOME"] == "/profiles/one"
     assert waits == [8]
     assert len(queued) == 1
+
+
+@pytest.mark.parametrize(
+    ("five_hour_used", "weekly_used", "expected"),
+    [(84, 84, False), (85, None, True), (None, 85, True)],
+)
+def test_review_drain_starts_at_configured_usage_threshold(
+    five_hour_used: int | None, weekly_used: int | None, expected: bool
+) -> None:
+    supervisor = auto.AutoSupervisor(
+        Adapter({"one": "ready"}), review_drain_threshold=85
+    )
+
+    assert supervisor._review_drain_due(
+        account("one", "ready", five_hour_used=five_hour_used, weekly_used=weekly_used)
+    ) is expected
 
 
 def test_blocked_rotation_queues_review_drain_when_critical_was_missed() -> None:
@@ -165,7 +195,7 @@ def test_failed_review_queue_does_not_delay_or_prevent_rotation() -> None:
     assert waits == []
 
 
-def test_failed_critical_review_queue_gets_one_final_blocked_retry() -> None:
+def test_failed_early_review_queue_gets_one_final_blocked_retry() -> None:
     adapter = Adapter({"one": "blocked"})
     child = Process(None)
     results = [1, 0]
@@ -198,6 +228,13 @@ def test_failed_critical_review_queue_gets_one_final_blocked_retry() -> None:
 def test_review_drain_grace_is_bounded(value: str) -> None:
     args = cli.build_parser().parse_args(["auto", "--review-drain-grace", value])
     with pytest.raises(ValueError, match="review-drain-grace"):
+        auto.run(args)
+
+
+@pytest.mark.parametrize("value", ["0", "100"])
+def test_review_drain_threshold_is_bounded(value: str) -> None:
+    args = cli.build_parser().parse_args(["auto", "--review-drain-threshold", value])
+    with pytest.raises(ValueError, match="review-drain-threshold"):
         auto.run(args)
 
 

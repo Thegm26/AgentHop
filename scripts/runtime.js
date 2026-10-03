@@ -45,7 +45,7 @@ function fail(message) {
 function printHelp() {
   console.log(`Usage: agenthop [desktop] [--port PORT]
        agenthop api [--host HOST] [--port PORT]
-       agenthop auto [--poll-interval SECONDS] [--continue-prompt TEXT] [-- CODEX_ARGS...]
+       agenthop auto [--poll-interval SECONDS] [--continue-prompt TEXT] [--review-drain-threshold PERCENT] [--review-drain-grace SECONDS] [-- CODEX_ARGS...]
 
 Start the AgentHop Linux system-tray application, or its loopback-only API.
 The first run creates a private Python runtime in $XDG_CACHE_HOME/agenthop.

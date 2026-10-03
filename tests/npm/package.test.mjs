@@ -37,6 +37,12 @@ test("launcher routes desktop, API, and headless auto commands without install h
   );
 });
 
+test("top-level help documents auto review-drain controls", () => {
+  const output = execFileSync("node", ["bin/agenthop.js", "--help"], { encoding: "utf8" });
+  assert.match(output, /--review-drain-threshold PERCENT/);
+  assert.match(output, /--review-drain-grace SECONDS/);
+});
+
 test("npm tarball includes the desktop runtime and built dashboard", () => {
   const output = execFileSync("npm", ["pack", "--dry-run", "--json", "--ignore-scripts"], {
     encoding: "utf8",

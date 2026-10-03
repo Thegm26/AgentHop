@@ -32,6 +32,9 @@ AUTO_LOCK_NAME = ".agenthop-auto.lock"
 LOCK_TIMEOUT = 5.0
 DEFAULT_REVIEW_DRAIN_GRACE = 45.0
 MAX_REVIEW_DRAIN_GRACE = 120.0
+DEFAULT_REVIEW_DRAIN_THRESHOLD = 85
+MIN_REVIEW_DRAIN_THRESHOLD = 1
+MAX_REVIEW_DRAIN_THRESHOLD = 99
 REVIEW_QUEUE_TIMEOUT = 15.0
 REVIEW_DRAIN_MESSAGE = (
     "Finish all active subagent and reviewer work now. Ask every running agent "
@@ -140,6 +143,7 @@ class AutoSupervisor:
         queue_runner: Callable[..., subprocess.CompletedProcess] = subprocess.run,
         sleep: Callable[[float], None] | None = None,
         review_drain_grace: float = DEFAULT_REVIEW_DRAIN_GRACE,
+        review_drain_threshold: int = DEFAULT_REVIEW_DRAIN_THRESHOLD,
         stderr=None,
     ) -> None:
         self.adapter = adapter
@@ -150,13 +154,14 @@ class AutoSupervisor:
         self._queue_runner = queue_runner
         self._sleep = sleep
         self.review_drain_grace = review_drain_grace
+        self.review_drain_threshold = review_drain_threshold
         self._wake = threading.Event()
         self._stderr = stderr or sys.stderr
         self.stop_requested = False
         self.automation_disabled = False
         self.root_session = known_resume_session(self.initial_arguments)
         self._review_drain_delivered = False
-        self._review_drain_critical_attempted = False
+        self._review_drain_early_attempted = False
         self._review_drain_final_attempted = False
         # This is the identity whose CODEX_HOME the owned child received.  The
         # shared .active marker remains a launch selector for other terminals,
@@ -166,6 +171,16 @@ class AutoSupervisor:
     @staticmethod
     def _blocked(account: AccountModel) -> bool:
         return bool(account.usage and account.usage.status == "blocked")
+
+    def _review_drain_due(self, account: AccountModel) -> bool:
+        """Return whether a known quota window is near exhaustion."""
+        usage = account.usage
+        if usage is None:
+            return False
+        return any(
+            used is not None and used >= self.review_drain_threshold
+            for used in (usage.five_hour_used, usage.weekly_used)
+        )
 
     def _warn(self, message: str) -> None:
         print(f"agenthop auto: {message}", file=self._stderr)
@@ -321,9 +336,9 @@ class AutoSupervisor:
                 return
             self._review_drain_final_attempted = True
         else:
-            if self._review_drain_critical_attempted:
+            if self._review_drain_early_attempted:
                 return
-            self._review_drain_critical_attempted = True
+            self._review_drain_early_attempted = True
         if self.bound_account is None:
             return
         binary = self.adapter.binary or "codex"
@@ -362,7 +377,7 @@ class AutoSupervisor:
         # can read it normally.  Cleanup below targets only this child tree;
         # never signal the shell's process group.
         self._review_drain_delivered = False
-        self._review_drain_critical_attempted = False
+        self._review_drain_early_attempted = False
         self._review_drain_final_attempted = False
         return self._popen(self._arguments(session_id), env=environment)
 
@@ -443,7 +458,7 @@ class AutoSupervisor:
                 if not self.automation_disabled:
                     self._remember_root_session(child)
                     usage = self._bound_usage()
-                    if usage.usage and usage.usage.status == "critical":
+                    if self._review_drain_due(usage):
                         self._request_review_drain(child)
                     if self._blocked(usage):
                         replacement = self._rotate(child)
@@ -478,6 +493,16 @@ def add_parser(subcommands: argparse._SubParsersAction) -> None:
         ),
     )
     auto.add_argument(
+        "--review-drain-threshold",
+        type=int,
+        default=DEFAULT_REVIEW_DRAIN_THRESHOLD,
+        help=(
+            "five-hour or weekly usage percentage that queues reviewer wrap-up "
+            f"(default: {DEFAULT_REVIEW_DRAIN_THRESHOLD}; "
+            f"range: {MIN_REVIEW_DRAIN_THRESHOLD}-{MAX_REVIEW_DRAIN_THRESHOLD})"
+        ),
+    )
+    auto.add_argument(
         "codex_args", nargs=argparse.REMAINDER,
         help="initial Codex arguments; place them after --",
     )
@@ -491,6 +516,15 @@ def run(args: argparse.Namespace) -> int:
             "--review-drain-grace must be between 0 and "
             f"{MAX_REVIEW_DRAIN_GRACE:g} seconds"
         )
+    if not (
+        MIN_REVIEW_DRAIN_THRESHOLD
+        <= args.review_drain_threshold
+        <= MAX_REVIEW_DRAIN_THRESHOLD
+    ):
+        raise ValueError(
+            "--review-drain-threshold must be between "
+            f"{MIN_REVIEW_DRAIN_THRESHOLD} and {MAX_REVIEW_DRAIN_THRESHOLD}"
+        )
     initial = list(args.codex_args)
     if initial[:1] == ["--"]:
         initial.pop(0)
@@ -500,4 +534,5 @@ def run(args: argparse.Namespace) -> int:
         continue_prompt=args.continue_prompt,
         initial_arguments=initial,
         review_drain_grace=args.review_drain_grace,
+        review_drain_threshold=args.review_drain_threshold,
     ).run()

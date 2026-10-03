@@ -151,7 +151,7 @@ switch on critical, unknown, or failed usage checks.
 ```bash
 agenthop auto -- resume SESSION_ID
 agenthop auto --poll-interval 60 --continue-prompt continue -- "your initial prompt"
-agenthop auto --review-drain-grace 45 -- resume SESSION_ID
+agenthop auto --review-drain-threshold 85 --review-drain-grace 45 -- resume SESSION_ID
 ```
 
 The convenience shell function `codex-auto` passes its arguments to this mode
@@ -165,15 +165,16 @@ the running process's root rollout to the shared Codex SQLite index, it leaves
 the process running and disables automatic rotation rather than resuming a
 possibly wrong thread.
 
-When a monitored profile becomes critical, AgentHop queues a message to the
-proven root session asking active reviewer and subagent work to finish and
-return findings. It gives that work 45 seconds by default before a subsequent
+When either known five-hour or weekly usage reaches 85%, AgentHop queues a
+message to the proven root session asking active reviewer and subagent work to
+finish and return findings. Set `--review-drain-threshold` from 1 to 99 to tune
+that early handoff. It gives that work 45 seconds by default before a subsequent
 rotation; use `--review-drain-grace 0` to disable this best-effort handoff, or
 set up to 120 seconds. The request uses Codex's non-interactive `queue` command
 with the bound profile environment, so AgentHop never writes synthetic input to
 the shared interactive terminal. If the early queue request fails, or the
-critical state is missed, rotation still proceeds; on confirmed exhaustion it
-makes one final best-effort request before stopping the owned Codex process.
+threshold is missed, rotation still proceeds; on confirmed exhaustion it makes
+one final best-effort request before stopping the owned Codex process.
 
 ## Publishing a release
 
