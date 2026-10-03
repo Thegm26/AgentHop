@@ -39,6 +39,11 @@ export const api = {
       `/api/providers/${encodeURIComponent(providerId)}/accounts`,
       { method: 'POST', body: JSON.stringify({ account }) },
     ),
+  reconnect: (providerId: string, accountId: string) =>
+    request<{ provider: string; account: string; command: string }>(
+      `/api/providers/${encodeURIComponent(providerId)}/accounts/${encodeURIComponent(accountId)}/reconnect`,
+      { method: 'POST' },
+    ),
   remove: (providerId: string, accountId: string) =>
     request<{ provider: string; account: string; removed: boolean }>(
       `/api/providers/${encodeURIComponent(providerId)}/accounts/${encodeURIComponent(accountId)}`,

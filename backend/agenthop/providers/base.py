@@ -34,6 +34,9 @@ class ProviderAdapter(ABC):
     def onboard(self, account: str) -> str:
         raise NotImplementedError("account onboarding is not supported by this provider")
 
+    def reconnect(self, account: str) -> str:
+        raise NotImplementedError("account reconnection is not supported by this provider")
+
     def default_account_name(self) -> str:
         raise ValueError("an account name is required for this provider")
 

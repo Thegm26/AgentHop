@@ -17,7 +17,7 @@ test("npm metadata exposes the Linux launcher", () => {
   assert.equal(packageMetadata.scripts.postinstall, undefined);
 });
 
-test("launcher routes desktop and API commands without install hooks", () => {
+test("launcher routes desktop, API, and headless auto commands without install hooks", () => {
   assert.deepEqual(parseInvocation([]), { mode: "desktop", args: [] });
   assert.deepEqual(parseInvocation(["--port", "9123"]), {
     mode: "desktop",
@@ -26,6 +26,10 @@ test("launcher routes desktop and API commands without install hooks", () => {
   assert.deepEqual(parseInvocation(["api", "--port", "8765"]), {
     mode: "api",
     args: ["--port", "8765"],
+  });
+  assert.deepEqual(parseInvocation(["auto", "--", "resume", "thread-1"]), {
+    mode: "auto",
+    args: ["--", "resume", "thread-1"],
   });
   assert.equal(
     runtimeDirectory("0.2.1", { XDG_CACHE_HOME: "/tmp/agenthop-cache" }, "/home/test"),

@@ -158,16 +158,7 @@ class CodexAdapter(ProviderAdapter):
             if not marker.is_file():
                 raise DuplicateAccountError("account already exists: default")
             marker.unlink()
-            return " ".join(
-                [
-                    "env",
-                    'CODEX_HOME="$HOME/.codex"',
-                    "codex",
-                    "-c",
-                    shlex.quote('cli_auth_credentials_store="file"'),
-                    "login",
-                ]
-            )
+            return self._login_command(account)
         if not self.binary:
             raise RuntimeError("codex executable not found in PATH")
         home = self.profile_root / account
@@ -175,16 +166,26 @@ class CodexAdapter(ProviderAdapter):
             home.mkdir(mode=0o700)
         except FileExistsError as exc:
             raise DuplicateAccountError(f"account already exists: {account}") from exc
+        return self._login_command(account)
+
+    def _login_command(self, account: str) -> str:
+        """Build the supported file-store login command without touching state."""
+        home = "$HOME/.codex" if account == "default" else f"$HOME/.codex-profiles/{account}"
         return " ".join(
             [
                 "env",
-                f'CODEX_HOME="$HOME/.codex-profiles/{account}"',
+                f'CODEX_HOME="{home}"',
                 "codex",
                 "-c",
                 shlex.quote('cli_auth_credentials_store="file"'),
                 "login",
             ]
         )
+
+    def reconnect(self, account: str) -> str:
+        """Return a new login command while preserving an existing profile."""
+        self._home(account)
+        return self._login_command(account)
 
     def default_account_name(self) -> str:
         """Choose a predictable unused local profile name for a blank UI entry."""
@@ -305,7 +306,9 @@ class CodexAdapter(ProviderAdapter):
                 raise RuntimeError("Codex app-server timed out")
             for request_id in (2, 3):
                 if "error" in replies[request_id]:
-                    raise RuntimeError("Codex app-server request failed")
+                    raise RuntimeError(
+                        self._rpc_error_message(replies[request_id].get("error"))
+                    )
             return replies[2].get("result", {}), replies[3].get("result", {})
         finally:
             if proc.poll() is None:
@@ -317,6 +320,27 @@ class CodexAdapter(ProviderAdapter):
                     proc.wait(timeout=1)
             if reader.is_alive():
                 reader.join(timeout=1)
+
+    @staticmethod
+    def _rpc_error_message(error: Any) -> str:
+        """Classify only safe auth signals; never relay app-server error data."""
+        if not isinstance(error, dict):
+            return "Codex app-server request failed"
+        values = [error.get("code"), error.get("message")]
+        # Codes and message fragments are local classification inputs only.
+        # The displayed string remains constant so upstream bodies, including
+        # credential material, cannot reach the API/UI.
+        text = " ".join(str(value).lower() for value in values if value is not None)
+        if (
+            "401" in text
+            or "token_revoked" in text
+            or "token revoked" in text
+            or "token expired" in text
+            or "invalid token" in text
+            or "authentication" in text
+        ):
+            return "Codex authentication expired or was revoked (401)"
+        return "Codex app-server request failed"
 
     def _rpc_consume_reset_credit(self, home: Path, credit_id: str) -> str:
         if not credit_id:
@@ -543,6 +567,25 @@ class CodexAdapter(ProviderAdapter):
             return list(
                 pool.map(lambda pair: self._inspect(*pair, active, True), profiles)
             )
+
+    def account(self, account: str, *, refresh: bool = False) -> AccountModel:
+        """Inspect one profile without refreshing every configured account.
+
+        The auto launcher polls only the active profile between switches.  Keep
+        this operation here rather than teaching callers about profile paths or
+        the app-server protocol.
+        """
+        home = self._home(account)
+        return self._inspect(account, home, self._active(), refresh)
+
+    def launch_environment(self, account: str) -> dict[str, str]:
+        """Prepare shared state and return the safe environment for Codex."""
+        home = self._home(account)
+        self._prepare_shared_state()
+        return {
+            "CODEX_HOME": str(home),
+            "CODEX_SQLITE_HOME": str(self.default_home),
+        }
 
     @staticmethod
     def _conflict_target(target: Path, source: Path) -> Path:

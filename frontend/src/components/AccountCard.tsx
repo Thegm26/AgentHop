@@ -10,6 +10,8 @@ interface Props {
   disabled: boolean
   onActivate: (account: Account) => void
   onDelete: (account: Account) => void
+  onReconnect: (account: Account) => void
+  onRefresh: () => void
   onRedeemResetCredit: (account: Account) => void
 }
 
@@ -40,7 +42,13 @@ function capacityState(remaining: number) {
   return 'healthy'
 }
 
-export function AccountCard({ account, recommended, busy, disabled, onActivate, onDelete, onRedeemResetCredit }: Props) {
+function isAuthenticationFailure(account: Account) {
+  if (!account.authenticated) return true
+  const error = account.usage?.error?.toLowerCase() ?? ''
+  return /\b401\b|revoked|expired|invalid.?token|not logged in|authentication/.test(error)
+}
+
+export function AccountCard({ account, recommended, busy, disabled, onActivate, onDelete, onReconnect, onRefresh, onRedeemResetCredit }: Props) {
   const [now, setNow] = useState(() => Date.now())
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 60_000)
@@ -50,9 +58,14 @@ export function AccountCard({ account, recommended, busy, disabled, onActivate, 
     { label: '5-hour limit', usedPercent: account.usage?.fiveHourUsed, resetsAt: account.usage?.fiveHourResetsAt },
     { label: 'Weekly limit', usedPercent: account.usage?.weeklyUsed, resetsAt: account.usage?.weeklyResetsAt },
   ].filter((item): item is { label: string; usedPercent: number; resetsAt: number | null | undefined } => typeof item.usedPercent === 'number')
-  const unavailable = !account.authenticated || account.duplicate || account.usage?.status === 'blocked' || account.usage?.status === 'error'
-  const removable = account.id === 'default' || (!account.active && unavailable)
-  const status = account.duplicate ? 'duplicate' : !account.authenticated ? 'disconnected' : account.usage?.status ?? 'unknown'
+  const reconnectable = !account.duplicate && isAuthenticationFailure(account)
+  const transientProbeFailure = account.usage?.status === 'error' && !reconnectable
+  const unavailable = reconnectable || account.duplicate || account.usage?.status === 'blocked'
+  // Named profiles are local resources: every inactive one is removable,
+  // regardless of whether its last usage probe was ready, unknown, or failed.
+  // Active named profiles stay protected in the UI and by the backend.
+  const removable = account.id === 'default' || !account.active
+  const status = account.duplicate ? 'duplicate' : reconnectable ? 'disconnected' : account.usage?.status ?? 'unknown'
   const unblockAt = status === 'blocked' ? expectedUnblockAt(account) : null
   const unblockWait = unblockAt == null ? null : timeUntil(unblockAt, now)
   const email = account.email || (!account.authenticated || account.duplicate ? 'No email connected' : 'Email unavailable')
@@ -99,10 +112,13 @@ export function AccountCard({ account, recommended, busy, disabled, onActivate, 
       </div>
 
       {status === 'blocked' && <p className="account-unblock"><ClockIcon /> {unblockWait == null ? 'Unblock time unavailable' : unblockWait === 'now' ? 'Reset due; refresh status' : `Expected unblock ${unblockWait}`}</p>}
+      {transientProbeFailure && <p className="account-warning">Usage check was temporary: {account.usage?.error || 'try refreshing again.'}</p>}
 
       <div className="account-actions">
         {(account.usage?.resetCreditsAvailable ?? 0) > 0 && <button className="button button--secondary" disabled={disabled} onClick={() => onRedeemResetCredit(account)}>{busy ? 'Redeeming…' : `Redeem usage limit reset (${account.usage?.resetCreditsAvailable})`}</button>}
         {account.duplicate && <span className="account-warning">Duplicate credentials</span>}
+        {reconnectable && <button className="button button--primary" disabled={disabled} onClick={() => onReconnect(account)}>{busy ? 'Preparing…' : 'Reconnect'}</button>}
+        {transientProbeFailure && <button className="button button--secondary" disabled={disabled} onClick={onRefresh}>Retry refresh</button>}
         {!account.active && (
           <button className="button button--secondary" disabled={disabled || unavailable} onClick={() => onActivate(account)}>
             {busy ? 'Switching…' : unavailable ? 'Account unavailable' : 'Switch to this'} <ArrowIcon />

@@ -8,6 +8,8 @@ import sys
 
 import uvicorn
 
+from agenthop import auto
+
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
@@ -28,6 +30,7 @@ def build_parser() -> argparse.ArgumentParser:
     subcommands = parser.add_subparsers(dest="command")
     desktop = subcommands.add_parser("desktop", help="open the Linux desktop application")
     desktop.add_argument("--port", type=int, default=0, help="loopback port (0 chooses one)")
+    auto.add_parser(subcommands)
     return parser
 
 
@@ -49,6 +52,11 @@ def main(argv: list[str] | None = None) -> int:
             "AGENTHOP_DESKTOP_PORT": str(args.port),
         }
         return subprocess.call(["/usr/bin/python3", str(shell)], env=environment)
+    if args.command == "auto":
+        try:
+            return auto.run(args)
+        except ValueError as exc:
+            build_parser().error(str(exc))
     if not 1 <= args.port <= 65535:
         build_parser().error("--port must be between 1 and 65535")
     uvicorn.run("agenthop.api:app", host=args.host, port=args.port, reload=args.reload)

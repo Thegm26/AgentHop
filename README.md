@@ -94,6 +94,12 @@ env CODEX_HOME="$HOME/.codex-profiles/account-01" \
 See the official [Codex authentication guide](https://developers.openai.com/codex/auth)
 for other supported credential-store and sign-in options.
 
+If a saved profile is disconnected or its token is revoked, use **Reconnect**
+on that profile. AgentHop gives you a profile-scoped `codex login` command; it
+does not delete or recreate the profile, so its configuration and shared session
+state remain in place. A `Codex app-server timed out` status is a transient
+usage check failure: use **Retry refresh** rather than removing the profile.
+
 ## Continuity and safety
 
 Before first migration, back up your Codex homes and stop running Codex
@@ -133,6 +139,41 @@ npm --prefix frontend run build
 `.venv/bin/agenthop` starts the standalone loopback API on port 8765. The interactive API
 reference is available at `/docs`; use Vite's port-8000 proxy when developing the
 frontend.
+
+## Supervised Codex rotation
+
+`agenthop auto` keeps an interactive Codex terminal attached while it checks its
+own launched profile every 30 seconds. It changes profiles only after the authoritative
+five-hour or weekly counter is at 100%, never consumes reset credits, and resumes
+the proven root session with `continue` after a switch. It deliberately does not
+switch on critical, unknown, or failed usage checks.
+
+```bash
+agenthop auto -- resume SESSION_ID
+agenthop auto --poll-interval 60 --continue-prompt continue -- "your initial prompt"
+agenthop auto --review-drain-grace 45 -- resume SESSION_ID
+```
+
+The convenience shell function `codex-auto` passes its arguments to this mode
+while retaining its fixed workspace, approval, search, and `/tmp` options. You
+can run multiple terminal instances at once: each independently tracks and
+resumes its own root session, while profile selection is briefly coordinated on
+disk. Use Ctrl-C to stop only that terminal's supervisor; when every usable
+profile is exhausted, each affected instance waits and polls until capacity
+returns. For safety, if AgentHop cannot uniquely match
+the running process's root rollout to the shared Codex SQLite index, it leaves
+the process running and disables automatic rotation rather than resuming a
+possibly wrong thread.
+
+When a monitored profile becomes critical, AgentHop queues a message to the
+proven root session asking active reviewer and subagent work to finish and
+return findings. It gives that work 45 seconds by default before a subsequent
+rotation; use `--review-drain-grace 0` to disable this best-effort handoff, or
+set up to 120 seconds. The request uses Codex's non-interactive `queue` command
+with the bound profile environment, so AgentHop never writes synthetic input to
+the shared interactive terminal. If the early queue request fails, or the
+critical state is missed, rotation still proceeds; on confirmed exhaustion it
+makes one final best-effort request before stopping the owned Codex process.
 
 ## Publishing a release
 

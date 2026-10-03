@@ -85,6 +85,12 @@ class OnboardResponse(APIModel):
     command: str
 
 
+class ReconnectResponse(APIModel):
+    provider: str
+    account: str
+    command: str
+
+
 class RemovalResponse(APIModel):
     provider: str
     account: str

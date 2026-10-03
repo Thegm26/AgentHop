@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from agenthop.providers.base import DuplicateAccountError
+from agenthop.providers.base import DuplicateAccountError, UnknownAccountError
 from agenthop.providers.codex import CodexAdapter
 
 
@@ -130,6 +130,34 @@ def test_remove_rejects_non_profile_or_symlink(adapter: CodexAdapter) -> None:
 
     with pytest.raises(LookupError, match="unknown account"):
         adapter.remove("account-link")
+
+
+def test_reconnect_preserves_existing_profile_files_and_rejects_invalid_targets(
+    adapter: CodexAdapter,
+) -> None:
+    profile = add_profile(adapter, "account-01")
+    (profile / "config.toml").write_text('model = "gpt-5"\n')
+    session = profile / "sessions" / "existing.jsonl"
+    session.parent.mkdir()
+    session.write_text("rollout")
+    before = {path.relative_to(profile): path.read_bytes() for path in profile.rglob("*") if path.is_file()}
+
+    command = adapter.reconnect("account-01")
+
+    assert shlex.split(command) == [
+        "env",
+        "CODEX_HOME=$HOME/.codex-profiles/account-01",
+        "codex",
+        "-c",
+        'cli_auth_credentials_store="file"',
+        "login",
+    ]
+    assert {path.relative_to(profile): path.read_bytes() for path in profile.rglob("*") if path.is_file()} == before
+    (profile / ".duplicate-of").write_text("default\n")
+    with pytest.raises(DuplicateAccountError):
+        adapter.reconnect("account-01")
+    with pytest.raises(UnknownAccountError):
+        adapter.reconnect("missing")
 
 
 def test_command_shares_state_and_never_contains_auth(adapter: CodexAdapter) -> None:
@@ -391,6 +419,34 @@ def test_refresh_regenerates_usage_and_state_keeps_the_last_snapshot(
     assert len(calls) == 4
 
 
+def test_transient_rpc_timeout_preserves_local_authentication_and_cached_identity(
+    adapter: CodexAdapter, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    add_profile(adapter, "account-01")
+
+    monkeypatch.setattr(
+        adapter,
+        "_rpc_call",
+        lambda _home: (
+            {"account": {"email": "profile@example.com"}},
+            {"rateLimits": {"primary": {"windowDurationMins": 300, "usedPercent": 20}}},
+        ),
+    )
+    connected = adapter.accounts(refresh=True)[1]
+
+    def timeout(_home: Path):
+        raise RuntimeError("Codex app-server timed out")
+
+    monkeypatch.setattr(adapter, "_rpc_call", timeout)
+    transient = adapter.accounts(refresh=True)[1]
+
+    assert connected.authenticated is True
+    assert transient.authenticated is True
+    assert transient.email == "profile@example.com"
+    assert transient.usage and transient.usage.status == "error"
+    assert transient.usage.error == "Codex app-server timed out"
+
+
 def test_identity_cache_is_cleared_for_unauthenticated_and_duplicate_profiles(
     adapter: CodexAdapter, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -495,3 +551,60 @@ def test_rpc_does_not_surface_server_error_details(tmp_path: Path) -> None:
     with pytest.raises(RuntimeError) as error:
         adapter._rpc_call(home)
     assert "secret-token" not in str(error.value)
+
+
+@pytest.mark.parametrize("request_id", [2, 3])
+def test_rpc_classifies_revoked_auth_errors_without_exposing_server_body(
+    tmp_path: Path, request_id: int
+) -> None:
+    binary = tmp_path / "fake-codex"
+    other_id = 3 if request_id == 2 else 2
+    binary.write_text(
+        "#!/usr/bin/env python3\n"
+        "import sys, time\n"
+        "sys.stdin.readline()\n"
+        f'print(\'{{\\"id\\":{request_id},\\"error\\":{{\\"code\\":-32603,\\"message\\":\\"401 Unauthorized token_revoked secret-token\\"}}}}\', flush=True)\n'
+        f'print(\'{{\\"id\\":{other_id},\\"result\\":{{}}}}\', flush=True)\n'
+        "time.sleep(10)\n"
+    )
+    binary.chmod(0o700)
+    home = tmp_path / "home"
+    home.mkdir()
+    adapter = CodexAdapter(
+        default_home=home,
+        profile_root=tmp_path / "profiles",
+        binary=str(binary),
+        rpc_timeout=1,
+    )
+
+    with pytest.raises(RuntimeError) as error:
+        adapter._rpc_call(home)
+
+    assert str(error.value) == "Codex authentication expired or was revoked (401)"
+    assert "secret-token" not in str(error.value)
+
+
+def test_rpc_keeps_non_auth_server_errors_generic(tmp_path: Path) -> None:
+    binary = tmp_path / "fake-codex"
+    binary.write_text(
+        "#!/usr/bin/env python3\n"
+        "import sys, time\n"
+        "sys.stdin.readline()\n"
+        'print(\'{\\"id\\":3,\\"error\\":{\\"code\\":-32603,\\"message\\":\\"internal secret-token failure\\"}}\', flush=True)\n'
+        'print(\'{\\"id\\":2,\\"result\\":{}}\', flush=True)\n'
+        "time.sleep(10)\n"
+    )
+    binary.chmod(0o700)
+    home = tmp_path / "home"
+    home.mkdir()
+    adapter = CodexAdapter(
+        default_home=home,
+        profile_root=tmp_path / "profiles",
+        binary=str(binary),
+        rpc_timeout=1,
+    )
+
+    with pytest.raises(RuntimeError) as error:
+        adapter._rpc_call(home)
+
+    assert str(error.value) == "Codex app-server request failed"

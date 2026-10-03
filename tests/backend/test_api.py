@@ -4,7 +4,7 @@ from fastapi.testclient import TestClient
 
 from agenthop.api import create_app
 from agenthop.models import AccountModel, ProviderModel, SessionModel, UsageModel
-from agenthop.providers.base import DuplicateAccountError, ProviderAdapter
+from agenthop.providers.base import DuplicateAccountError, ProviderAdapter, UnknownAccountError
 from agenthop.service import AccountService
 
 
@@ -18,6 +18,7 @@ class FakeProvider(ProviderAdapter):
         self.onboarded: str | None = None
         self.removed: str | None = None
         self.redeemed: str | None = None
+        self.reconnected: str | None = None
 
     def provider(self) -> ProviderModel:
         return ProviderModel(id=self.id, name=self.name, available=True)
@@ -61,6 +62,14 @@ class FakeProvider(ProviderAdapter):
     def default_account_name(self) -> str:
         return "account-01"
 
+    def reconnect(self, account: str) -> str:
+        if account == "duplicate":
+            raise DuplicateAccountError("account is marked as a duplicate: duplicate")
+        if account != "work":
+            raise UnknownAccountError("unknown account")
+        self.reconnected = account
+        return "CODEX_HOME=/safe/profile codex login"
+
     def remove(self, account: str) -> None:
         if account not in {"default", "unusable"}:
             raise ValueError("unknown account")
@@ -85,7 +94,7 @@ def client_and_provider() -> tuple[TestClient, FakeProvider]:
 
 def test_health_and_state_schema() -> None:
     client, _ = client_and_provider()
-    assert client.get("/api/health").json() == {"status": "ok", "version": "0.4.0"}
+    assert client.get("/api/health").json() == {"status": "ok", "version": "0.5.4"}
 
     response = client.get("/api/state")
     assert response.status_code == 200
@@ -175,6 +184,23 @@ def test_onboard_rejects_duplicates_invalid_names_and_unknown_providers() -> Non
     generated = client.post("/api/providers/fake/accounts", json={"account": ""})
     assert generated.status_code == 201
     assert generated.json()["account"] == "account-01"
+
+
+def test_reconnect_returns_the_existing_profile_login_command() -> None:
+    client, provider = client_and_provider()
+
+    response = client.post("/api/providers/fake/accounts/work/reconnect")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "provider": "fake",
+        "account": "work",
+        "command": "CODEX_HOME=/safe/profile codex login",
+    }
+    assert provider.reconnected == "work"
+    assert client.post("/api/providers/fake/accounts/duplicate/reconnect").status_code == 409
+    assert client.post("/api/providers/fake/accounts/missing/reconnect").status_code == 404
+    assert client.post("/api/providers/missing/accounts/work/reconnect").status_code == 404
 
 
 def test_remove_account_accepts_default_and_reports_success() -> None:

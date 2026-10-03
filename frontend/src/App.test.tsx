@@ -343,6 +343,66 @@ describe('App', () => {
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith('/api/providers/codex/accounts/default', expect.objectContaining({ method: 'DELETE' })))
   })
 
+  it('offers reconnect for genuine authentication failures without deleting the profile', async () => {
+    const disconnectedState = {
+      ...state,
+      accounts: [
+        { provider: 'codex', id: 'revoked-active', active: true, authenticated: true, duplicate: false, usage: { status: 'error' as const, error: '401 token revoked' } },
+        { provider: 'codex', id: 'duplicate', active: true, authenticated: false, duplicate: true },
+      ],
+      recommendation: null,
+    }
+    const fetchMock = vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(json(disconnectedState))
+      .mockResolvedValueOnce(json({ provider: 'codex', account: 'revoked-active', command: 'CODEX_HOME=/profiles/revoked-active codex login' }))
+    render(<App />)
+
+    expect(await screen.findByLabelText('Account state: disconnected')).toBeInTheDocument()
+    await userEvent.click(await screen.findByRole('button', { name: 'Reconnect' }))
+
+    expect(await screen.findByRole('dialog')).toHaveTextContent('Reconnect revoked-active')
+    expect(screen.getByRole('dialog')).toHaveTextContent('keeps the profile, its configuration, and its shared sessions')
+    expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/providers/codex/accounts/revoked-active/reconnect', expect.objectContaining({ method: 'POST' }))
+    expect(screen.queryByRole('button', { name: 'Delete profile' })).not.toBeInTheDocument()
+    expect(screen.getAllByRole('button', { name: 'Reconnect' })).toHaveLength(1)
+  })
+
+  it('treats a Codex app-server timeout as transient and offers refresh instead of deletion', async () => {
+    const timeoutState = {
+      ...state,
+      accounts: [{ provider: 'codex', id: 'work', active: false, authenticated: true, duplicate: false, email: 'work@example.com', usage: { status: 'error' as const, error: 'Codex app-server timed out' } }],
+      recommendation: null,
+    }
+    const fetchMock = vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(json(timeoutState))
+      .mockResolvedValueOnce(json(timeoutState))
+    render(<App />)
+
+    expect(await screen.findByText(/Usage check was temporary: Codex app-server timed out/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Retry refresh' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Delete profile' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Reconnect' })).not.toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Retry refresh' }))
+    await waitFor(() => expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/refresh', expect.objectContaining({ method: 'POST' })))
+  })
+
+  it('shows delete for inactive named profiles while protecting active named profiles', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(json({
+      ...state,
+      accounts: [
+        { provider: 'codex', id: 'account-08', active: false, authenticated: true, duplicate: false, usage: { status: 'unknown' as const } },
+        { provider: 'codex', id: 'account-09', active: false, authenticated: true, duplicate: false, usage: { status: 'ready' as const } },
+        { provider: 'codex', id: 'account-active', active: true, authenticated: true, duplicate: false, usage: { status: 'ready' as const } },
+      ],
+      recommendation: null,
+    }))
+    render(<App />)
+
+    expect(await screen.findByRole('heading', { name: 'account-08' })).toBeInTheDocument()
+    expect(screen.getAllByRole('button', { name: 'Delete profile' })).toHaveLength(2)
+    expect(screen.getByRole('heading', { name: 'account-active' }).closest('article')).not.toHaveTextContent('Delete profile')
+  })
+
   it('keeps a successful profile creation visible when the follow-up refresh fails', async () => {
     vi.spyOn(globalThis, 'fetch')
       .mockResolvedValueOnce(json(state))

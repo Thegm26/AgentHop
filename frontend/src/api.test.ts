@@ -31,6 +31,13 @@ describe('api', () => {
     expect(fetchMock).toHaveBeenCalledWith('/api/providers/open%20ai/accounts/account%2F01', expect.objectContaining({ method: 'DELETE' }))
   })
 
+  it('prepares a reconnect command for an existing encoded profile', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({ provider: 'codex', account: 'work', command: 'codex login' }), { status: 200, headers: { 'Content-Type': 'application/json' } }))
+
+    await expect(api.reconnect('open ai', 'work/account')).resolves.toEqual({ provider: 'codex', account: 'work', command: 'codex login' })
+    expect(fetchMock).toHaveBeenCalledWith('/api/providers/open%20ai/accounts/work%2Faccount/reconnect', expect.objectContaining({ method: 'POST' }))
+  })
+
   it('surfaces backend error details', async () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({ detail: 'Account is unavailable' }), { status: 409, headers: { 'Content-Type': 'application/json' } }))
 

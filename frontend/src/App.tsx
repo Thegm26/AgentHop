@@ -150,6 +150,24 @@ export default function App() {
     }
   }
 
+  async function reconnect(account: Account) {
+    if (operationInProgress.current) return
+    const key = `reconnect:${account.provider}:${account.id}`
+    operationInProgress.current = true
+    setBusyKey(key)
+    setError('')
+    try {
+      await waitForStateRequests()
+      const result = await api.reconnect(account.provider, account.id)
+      setModal({ command: result.command, title: `Reconnect ${result.account}`, description: 'Run this in your terminal and complete the Codex sign-in. This keeps the profile, its configuration, and its shared sessions. Then return here and refresh usage and reset times.' })
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Could not prepare reconnection.')
+    } finally {
+      operationInProgress.current = false
+      setBusyKey((current) => current === key ? '' : current)
+    }
+  }
+
   async function onboard(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     const account = newAccount.trim()
@@ -281,7 +299,7 @@ export default function App() {
                 <>
                 <div className="account-grid">
                   {displayedAccounts.map((account) => (
-                    <AccountCard key={account.id} account={account} recommended={account.id === recommendedId} busy={busyKey === `account:${account.provider}:${account.id}` || busyKey === `reset-credit:${account.provider}:${account.id}` || busyKey === 'remove'} disabled={Boolean(busyKey) || refreshing} onActivate={(item) => void activate(item)} onDelete={(item) => void removeAccount(item)} onRedeemResetCredit={(item) => void redeemResetCredit(item)} />
+                    <AccountCard key={account.id} account={account} recommended={account.id === recommendedId} busy={busyKey === `account:${account.provider}:${account.id}` || busyKey === `reset-credit:${account.provider}:${account.id}` || busyKey === `reconnect:${account.provider}:${account.id}` || busyKey === 'remove'} disabled={Boolean(busyKey) || refreshing} onActivate={(item) => void activate(item)} onDelete={(item) => void removeAccount(item)} onReconnect={(item) => void reconnect(item)} onRefresh={() => void refresh()} onRedeemResetCredit={(item) => void redeemResetCredit(item)} />
                   ))}
                 </div>
                 </>

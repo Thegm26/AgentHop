@@ -19,6 +19,7 @@ from agenthop.models import (
     HealthResponse,
     OnboardRequest,
     OnboardResponse,
+    ReconnectResponse,
     RedeemResetResponse,
     RemovalResponse,
     StateModel,
@@ -106,6 +107,29 @@ def create_app(service: AccountService | None = None) -> FastAPI:
         except (OSError, RuntimeError) as exc:
             raise HTTPException(status_code=500, detail=f"onboarding failed: {exc}") from exc
         return OnboardResponse(provider=provider, account=account, command=command)
+
+    @app.post(
+        "/api/providers/{provider}/accounts/{account}/reconnect",
+        response_model=ReconnectResponse,
+    )
+    def reconnect(provider: str, account: str) -> ReconnectResponse:
+        try:
+            adapter = current_service().provider(provider)
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        try:
+            command = adapter.reconnect(account)
+        except UnknownAccountError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except DuplicateAccountError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except NotImplementedError as exc:
+            raise HTTPException(status_code=501, detail=str(exc)) from exc
+        except (OSError, RuntimeError) as exc:
+            raise HTTPException(status_code=500, detail=f"reconnection failed: {exc}") from exc
+        return ReconnectResponse(provider=provider, account=account, command=command)
 
     @app.delete(
         "/api/providers/{provider}/accounts/{account}",
