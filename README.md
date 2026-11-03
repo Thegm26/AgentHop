@@ -143,7 +143,13 @@ frontend.
 ## Supervised Codex rotation
 
 `agenthop auto` keeps an interactive Codex terminal attached while it checks its
-own launched profile every 30 seconds. It changes profiles only after the authoritative
+own launched profile every 120 seconds (override with `--poll-interval`). Usage
+requests allow 15 seconds for the Codex app-server to respond. The dashboard
+refreshes automatically once per hour and shows a positive available credit count
+under **Usage resets left**, or **Unavailable** otherwise. Credits are redeemed
+only through the manual reset action. Tray refreshes allow up to 90 seconds for
+multiple account probes; unusually large profile collections can still time out.
+The supervisor changes profiles only after the authoritative
 five-hour or weekly counter is at 100%, never consumes reset credits, and resumes
 the proven root session with `continue` after a switch. It deliberately does not
 switch on critical, unknown, or failed usage checks.
@@ -153,7 +159,6 @@ codex-auto resume SESSION_ID
 codex-auto "your initial prompt"
 agenthop auto -- resume SESSION_ID
 agenthop auto --poll-interval 60 --continue-prompt continue -- "your initial prompt"
-agenthop auto --review-drain-threshold 85 --review-drain-grace 45 -- resume SESSION_ID
 ```
 
 The npm package installs `codex-auto`, which forwards all arguments as Codex
@@ -162,23 +167,18 @@ help; use `agenthop auto --help` for supervisor options. Existing `codex-auto`
 shell functions remain compatible and take precedence over the installed command.
 You can run multiple terminal instances at once: each independently tracks and
 resumes its own root session, while profile selection is briefly coordinated on
-disk. Use Ctrl-C to stop only that terminal's supervisor; when every usable
-profile is exhausted, each affected instance waits and polls until capacity
-returns. For safety, if AgentHop cannot uniquely match
+disk. Usage probes do not hold the shared activation lock. If no usable profile
+exists at startup, AgentHop returns to the shell with exit code 75. If a running
+profile is exhausted with no replacement, its Codex terminal stays interactive
+with automatic rotation disabled until it exits; AgentHop does not wait for capacity.
+Use Ctrl-C to stop only that terminal's supervisor. For safety, if AgentHop cannot uniquely match
 the running process's root rollout to the shared Codex SQLite index, it leaves
 the process running and disables automatic rotation rather than resuming a
 possibly wrong thread.
 
-When either known five-hour or weekly usage reaches 85%, AgentHop queues a
-message to the proven root session asking active reviewer and subagent work to
-finish and return findings. Set `--review-drain-threshold` from 1 to 99 to tune
-that early handoff. It gives that work 45 seconds by default before a subsequent
-rotation; use `--review-drain-grace 0` to disable this best-effort handoff, or
-set up to 120 seconds. The request uses Codex's non-interactive `queue` command
-with the bound profile environment, so AgentHop never writes synthetic input to
-the shared interactive terminal. If the early queue request fails, or the
-threshold is missed, rotation still proceeds; on confirmed exhaustion it makes
-one final best-effort request before stopping the owned Codex process.
+AgentHop never queues reviewer messages or injects prompts into a running session.
+Ctrl-C interrupts pending usage checks, stops the owned Codex child, and restores
+the terminal before returning to the shell.
 
 ## Publishing a release
 

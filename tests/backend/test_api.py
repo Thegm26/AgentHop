@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from fastapi.testclient import TestClient
 
+from agenthop import __version__
 from agenthop.api import create_app
 from agenthop.models import AccountModel, ProviderModel, SessionModel, UsageModel
 from agenthop.providers.base import DuplicateAccountError, ProviderAdapter, UnknownAccountError
@@ -94,7 +95,7 @@ def client_and_provider() -> tuple[TestClient, FakeProvider]:
 
 def test_health_and_state_schema() -> None:
     client, _ = client_and_provider()
-    assert client.get("/api/health").json() == {"status": "ok", "version": "0.5.4"}
+    assert client.get("/api/health").json() == {"status": "ok", "version": __version__}
 
     response = client.get("/api/state")
     assert response.status_code == 200

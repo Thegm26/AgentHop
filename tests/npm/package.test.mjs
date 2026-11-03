@@ -40,10 +40,10 @@ test("launcher routes desktop, API, and headless auto commands without install h
   );
 });
 
-test("top-level help documents auto review-drain controls", () => {
+test("top-level help documents polling without automatic review messages", () => {
   const output = execFileSync("node", ["bin/agenthop.js", "--help"], { encoding: "utf8" });
-  assert.match(output, /--review-drain-threshold PERCENT/);
-  assert.match(output, /--review-drain-grace SECONDS/);
+  assert.match(output, /--poll-interval SECONDS/);
+  assert.doesNotMatch(output, /review-drain/);
 });
 
 test("codex-auto forwards literal Codex arguments and the supervisor exit status", () => {

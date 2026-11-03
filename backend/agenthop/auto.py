@@ -12,12 +12,13 @@ import stat
 import subprocess
 import sys
 import threading
+import termios
 import time
 from collections.abc import Callable
 from contextlib import contextmanager
 
 from agenthop.models import AccountModel
-from agenthop.providers.codex import CodexAdapter, SESSION_RE
+from agenthop.providers.codex import CodexAdapter, ProbeCancelled, SESSION_RE
 from agenthop.service import AccountService
 
 DEFAULT_CODEX_ARGS = (
@@ -30,17 +31,10 @@ DEFAULT_CODEX_ARGS = (
 )
 AUTO_LOCK_NAME = ".agenthop-auto.lock"
 LOCK_TIMEOUT = 5.0
-DEFAULT_REVIEW_DRAIN_GRACE = 45.0
-MAX_REVIEW_DRAIN_GRACE = 120.0
-DEFAULT_REVIEW_DRAIN_THRESHOLD = 85
-MIN_REVIEW_DRAIN_THRESHOLD = 1
-MAX_REVIEW_DRAIN_THRESHOLD = 99
-REVIEW_QUEUE_TIMEOUT = 15.0
-REVIEW_DRAIN_MESSAGE = (
-    "Finish all active subagent and reviewer work now. Ask every running agent "
-    "to stop starting new work, complete its current review, and return all "
-    "findings before this session is rotated."
-)
+
+
+class SupervisorInterrupted(ProbeCancelled):
+    """Unwind blocking provider calls promptly when the terminal is interrupted."""
 
 
 class SelectionInterrupted(Exception):
@@ -136,14 +130,11 @@ class AutoSupervisor:
         self,
         adapter: CodexAdapter,
         *,
-        poll_interval: float = 30.0,
+        poll_interval: float = 120.0,
         continue_prompt: str = "continue",
         initial_arguments: list[str] | None = None,
         popen: Callable[..., subprocess.Popen] = subprocess.Popen,
-        queue_runner: Callable[..., subprocess.CompletedProcess] = subprocess.run,
         sleep: Callable[[float], None] | None = None,
-        review_drain_grace: float = DEFAULT_REVIEW_DRAIN_GRACE,
-        review_drain_threshold: int = DEFAULT_REVIEW_DRAIN_THRESHOLD,
         stderr=None,
     ) -> None:
         self.adapter = adapter
@@ -151,18 +142,15 @@ class AutoSupervisor:
         self.continue_prompt = continue_prompt
         self.initial_arguments = initial_arguments or []
         self._popen = popen
-        self._queue_runner = queue_runner
         self._sleep = sleep
-        self.review_drain_grace = review_drain_grace
-        self.review_drain_threshold = review_drain_threshold
         self._wake = threading.Event()
+        self._cancel = threading.Event()
+        self.adapter.cancel_event = self._cancel
+        self._owned_child: subprocess.Popen | None = None
         self._stderr = stderr or sys.stderr
         self.stop_requested = False
         self.automation_disabled = False
         self.root_session = known_resume_session(self.initial_arguments)
-        self._review_drain_delivered = False
-        self._review_drain_early_attempted = False
-        self._review_drain_final_attempted = False
         # This is the identity whose CODEX_HOME the owned child received.  The
         # shared .active marker remains a launch selector for other terminals,
         # never a source of truth for an already-running child.
@@ -171,16 +159,6 @@ class AutoSupervisor:
     @staticmethod
     def _blocked(account: AccountModel) -> bool:
         return bool(account.usage and account.usage.status == "blocked")
-
-    def _review_drain_due(self, account: AccountModel) -> bool:
-        """Return whether a known quota window is near exhaustion."""
-        usage = account.usage
-        if usage is None:
-            return False
-        return any(
-            used is not None and used >= self.review_drain_threshold
-            for used in (usage.five_hour_used, usage.weekly_used)
-        )
 
     def _warn(self, message: str) -> None:
         print(f"agenthop auto: {message}", file=self._stderr)
@@ -191,6 +169,15 @@ class AutoSupervisor:
             return
         self._wake.wait(seconds)
         self._wake.clear()
+
+    def _wait_for_child(self, child: subprocess.Popen, seconds: float) -> None:
+        """Check child liveness without issuing quota probes between polls."""
+        deadline = time.monotonic() + seconds
+        while not self.stop_requested and child.poll() is None:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return
+            self._pause(min(remaining, 1.0))
 
     def _bound_usage(self) -> AccountModel:
         if self.bound_account is None:
@@ -247,15 +234,7 @@ class AutoSupervisor:
             os.close(descriptor)
 
     def _recommendation(self) -> str | None:
-        """Return a live recommendation under the same lock used for switching."""
-        try:
-            with self._selection_lock():
-                return self._recommendation_locked()
-        except (SelectionInterrupted, TimeoutError):
-            return None
-
-    def _recommendation_locked(self) -> str | None:
-        """Full-refresh selection; caller owns the shared profile lock."""
+        """Refresh quota without holding the shared activation lock."""
         state = AccountService([self.adapter]).state(refresh=True)
         recommendation = state.recommendation
         if not recommendation or recommendation.provider != self.adapter.id:
@@ -272,16 +251,23 @@ class AutoSupervisor:
         return None
 
     def _select_activate_and_start(
-        self, session_id: str | None
+        self, session_id: str | None, child: subprocess.Popen | None = None
     ) -> subprocess.Popen | None:
         """Atomically pick a profile, update .active, and bind a new child."""
         if self.stop_requested:
             return None
+        self._warn("Checking available profiles; Ctrl-C to cancel")
+        target = self._recommendation()
+        if not target or self.stop_requested:
+            self._warn("No usable Codex profile available; returning to shell" if child is None
+                       else "No usable Codex profile available; keeping Codex interactive with rotation disabled")
+            return None
         try:
             with self._selection_lock():
-                target = self._recommendation_locked()
-                if not target or self.stop_requested:
+                if self.stop_requested:
                     return None
+                if child is not None:
+                    self._stop_child(child)
                 self.adapter.activate(target)
                 replacement = self._start(target, session_id)
                 self.bound_account = target
@@ -289,27 +275,17 @@ class AutoSupervisor:
         except SelectionInterrupted:
             return None
         except TimeoutError:
-            self._warn("timed out waiting for the profile selection lock; retrying")
+            self._warn("profile selection is busy; skipping automatic selection")
             return None
 
     def _wait_for_recommendation(
         self, child: subprocess.Popen | None, session_id: str | None
     ) -> subprocess.Popen | None:
-        # A rotation owns only this supervisor's child tree.  Stop it before
-        # acquiring the cross-process lock, so lock holders never encompass a
-        # running interactive Codex process or capacity wait.
-        if child is not None:
-            self._stop_child(child)
-        announced = False
-        while not self.stop_requested:
-            replacement = self._select_activate_and_start(session_id)
-            if replacement is not None:
-                return replacement
-            if not announced:
-                self._warn("all usable profiles are exhausted; waiting for capacity")
-                announced = True
-            self._pause(self.poll_interval)
-        return None
+        replacement = self._select_activate_and_start(session_id, child)
+        if replacement is None and child is not None and not self.stop_requested:
+            self.automation_disabled = True
+            return child
+        return replacement
 
     def _arguments(self, session_id: str | None) -> list[str]:
         binary = self.adapter.binary or "codex"
@@ -320,72 +296,19 @@ class AutoSupervisor:
         )
         return [binary, *DEFAULT_CODEX_ARGS, *tail]
 
-    def _request_review_drain(self, child: subprocess.Popen, *, final: bool = False) -> None:
-        """Ask the proven root thread to collect reviews before its rotation.
-
-        The owned Codex child inherits the user's terminal, so AgentHop must
-        never synthesize terminal input.  ``codex queue`` is an independent,
-        non-interactive supported delivery path for a thread message.
-        """
-        if self.review_drain_grace <= 0 or child.poll() is not None:
-            return
-        if not self.root_session or self._review_drain_delivered:
-            return
-        if final:
-            if self._review_drain_final_attempted:
-                return
-            self._review_drain_final_attempted = True
-        else:
-            if self._review_drain_early_attempted:
-                return
-            self._review_drain_early_attempted = True
-        if self.bound_account is None:
-            return
-        binary = self.adapter.binary or "codex"
-        try:
-            result = self._queue_runner(
-                [
-                    binary,
-                    "queue",
-                    "--thread",
-                    self.root_session,
-                    "--message",
-                    REVIEW_DRAIN_MESSAGE,
-                ],
-                env=os.environ | self.adapter.launch_environment(self.bound_account),
-                stdin=subprocess.DEVNULL,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                timeout=REVIEW_QUEUE_TIMEOUT,
-                check=False,
-            )
-        except (OSError, subprocess.SubprocessError) as exc:
-            self._warn(f"could not queue review wrap-up request; rotating normally ({exc})")
-            return
-        if result.returncode != 0:
-            self._warn("could not queue review wrap-up request; rotating normally")
-            return
-        self._review_drain_delivered = True
-        self._warn(
-            f"queued review wrap-up request; allowing {self.review_drain_grace:g}s before rotation"
-        )
-        self._pause(self.review_drain_grace)
-
     def _start(self, account: str, session_id: str | None) -> subprocess.Popen:
         environment = os.environ | self.adapter.launch_environment(account)
         # Inherit the foreground terminal's process group so interactive Codex
         # can read it normally.  Cleanup below targets only this child tree;
         # never signal the shell's process group.
-        self._review_drain_delivered = False
-        self._review_drain_early_attempted = False
-        self._review_drain_final_attempted = False
-        return self._popen(self._arguments(session_id), env=environment)
+        self._owned_child = self._popen(self._arguments(session_id), env=environment)
+        return self._owned_child
 
     def _stop_child(self, child: subprocess.Popen) -> None:
         if child.poll() is not None:
             return
         self._signal_tree(child.pid, signal.SIGTERM)
-        for _ in range(50):
+        for _ in range(10):
             if child.poll() is not None:
                 return
             self._pause(0.1)
@@ -419,24 +342,33 @@ class AutoSupervisor:
             self._warn(f"could not uniquely identify the root session; {action}")
             self.automation_disabled = True
             return child
-        if child is not None:
-            self._request_review_drain(child, final=True)
         return self._wait_for_recommendation(child, self.root_session)
 
     def _on_interrupt(self, _signum, _frame) -> None:
         self.stop_requested = True
+        self._cancel.set()
         self._wake.set()
 
+    def _handle_interrupt(self, signum, frame) -> None:
+        if self.stop_requested:
+            return
+        self._on_interrupt(signum, frame)
+        raise SupervisorInterrupted()
+
     def run(self) -> int:
-        previous_handler = signal.signal(signal.SIGINT, self._on_interrupt)
+        previous_handler = signal.signal(signal.SIGINT, self._handle_interrupt)
         child: subprocess.Popen | None = None
+        terminal = None
         try:
+            if sys.stdin.isatty():
+                terminal = (sys.stdin.fileno(), termios.tcgetattr(sys.stdin.fileno()))
             self.bound_account = self.adapter._active()
             initial = self._bound_usage()
-            if self._blocked(initial):
+            if (not initial.authenticated or initial.duplicate or not initial.usage
+                    or initial.usage.status not in {"ready", "close", "critical"}):
                 child = self._wait_for_recommendation(None, None)
                 if child is None:
-                    return 130
+                    return 130 if self.stop_requested else 75
             else:
                 child = self._start(self.bound_account, None)
             while True:
@@ -445,6 +377,8 @@ class AutoSupervisor:
                     return 130
                 exit_code = child.poll()
                 if exit_code is not None:
+                    if exit_code in (130, -signal.SIGINT):
+                        return 130
                     if self.automation_disabled:
                         return exit_code
                     usage = self._bound_usage()
@@ -458,17 +392,29 @@ class AutoSupervisor:
                 if not self.automation_disabled:
                     self._remember_root_session(child)
                     usage = self._bound_usage()
-                    if self._review_drain_due(usage):
-                        self._request_review_drain(child)
                     if self._blocked(usage):
                         replacement = self._rotate(child)
                         if replacement is None:
                             return 130
                         child = replacement
                         continue
-                self._pause(self.poll_interval)
+                self._wait_for_child(child, self.poll_interval)
+        except ProbeCancelled:
+            return 130
         finally:
-            signal.signal(signal.SIGINT, previous_handler)
+            # Further Ctrl-C presses must not interrupt cleanup or terminal repair.
+            self.stop_requested = True
+            self._cancel.set()
+            try:
+                owned_child = self._owned_child if self._owned_child is not None else child
+                if owned_child is not None:
+                    self._stop_child(owned_child)
+            finally:
+                try:
+                    if terminal is not None:
+                        termios.tcsetattr(terminal[0], termios.TCSANOW, terminal[1])
+                finally:
+                    signal.signal(signal.SIGINT, previous_handler)
 
 
 def add_parser(subcommands: argparse._SubParsersAction) -> None:
@@ -476,31 +422,12 @@ def add_parser(subcommands: argparse._SubParsersAction) -> None:
         "auto", help="supervise Codex and switch profiles only after confirmed exhaustion"
     )
     auto.add_argument(
-        "--poll-interval", type=float, default=30.0,
-        help="seconds between active-profile checks (default: 30)",
+        "--poll-interval", type=float, default=120.0,
+        help="seconds between active-profile checks (default: 120)",
     )
     auto.add_argument(
         "--continue-prompt", default="continue",
         help="prompt passed after an automatic resume (default: continue)",
-    )
-    auto.add_argument(
-        "--review-drain-grace",
-        type=float,
-        default=DEFAULT_REVIEW_DRAIN_GRACE,
-        help=(
-            "seconds for queued reviewers to return findings before rotation "
-            f"(0 disables; default: {DEFAULT_REVIEW_DRAIN_GRACE:g}; max: {MAX_REVIEW_DRAIN_GRACE:g})"
-        ),
-    )
-    auto.add_argument(
-        "--review-drain-threshold",
-        type=int,
-        default=DEFAULT_REVIEW_DRAIN_THRESHOLD,
-        help=(
-            "five-hour or weekly usage percentage that queues reviewer wrap-up "
-            f"(default: {DEFAULT_REVIEW_DRAIN_THRESHOLD}; "
-            f"range: {MIN_REVIEW_DRAIN_THRESHOLD}-{MAX_REVIEW_DRAIN_THRESHOLD})"
-        ),
     )
     auto.add_argument(
         "codex_args", nargs=argparse.REMAINDER,
@@ -511,20 +438,6 @@ def add_parser(subcommands: argparse._SubParsersAction) -> None:
 def run(args: argparse.Namespace) -> int:
     if args.poll_interval <= 0:
         raise ValueError("--poll-interval must be greater than zero")
-    if not 0 <= args.review_drain_grace <= MAX_REVIEW_DRAIN_GRACE:
-        raise ValueError(
-            "--review-drain-grace must be between 0 and "
-            f"{MAX_REVIEW_DRAIN_GRACE:g} seconds"
-        )
-    if not (
-        MIN_REVIEW_DRAIN_THRESHOLD
-        <= args.review_drain_threshold
-        <= MAX_REVIEW_DRAIN_THRESHOLD
-    ):
-        raise ValueError(
-            "--review-drain-threshold must be between "
-            f"{MIN_REVIEW_DRAIN_THRESHOLD} and {MAX_REVIEW_DRAIN_THRESHOLD}"
-        )
     initial = list(args.codex_args)
     if initial[:1] == ["--"]:
         initial.pop(0)
@@ -533,6 +446,4 @@ def run(args: argparse.Namespace) -> int:
         poll_interval=args.poll_interval,
         continue_prompt=args.continue_prompt,
         initial_arguments=initial,
-        review_drain_grace=args.review_drain_grace,
-        review_drain_threshold=args.review_drain_threshold,
     ).run()

@@ -2,4 +2,4 @@
 
 import { runLauncher } from "../scripts/runtime.js";
 
-process.exit(runLauncher(["auto", "--", ...process.argv.slice(2)]));
+process.exit(await runLauncher(["auto", "--", ...process.argv.slice(2)]));

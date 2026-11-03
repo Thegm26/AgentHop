@@ -1,9 +1,14 @@
 from __future__ import annotations
 
 from pathlib import Path
+import multiprocessing
+import fcntl
+import signal
 import sqlite3
 import subprocess
 import sys
+import threading
+import time
 
 import pytest
 
@@ -91,151 +96,86 @@ def test_cli_parses_auto_options_and_passthrough() -> None:
     parsed = cli.build_parser().parse_args(
         [
             "auto", "--poll-interval", "12", "--continue-prompt", "go",
-            "--review-drain-grace", "10", "--review-drain-threshold", "85",
             "--", "resume", "root-1",
         ]
     )
     assert parsed.command == "auto"
     assert parsed.poll_interval == 12
     assert parsed.continue_prompt == "go"
-    assert parsed.review_drain_grace == 10
-    assert parsed.review_drain_threshold == 85
     assert parsed.codex_args == ["--", "resume", "root-1"]
 
 
-def test_review_drain_queues_one_request_and_allows_grace() -> None:
-    adapter = Adapter({"one": "ready"})
+def test_auto_default_poll_interval_is_two_minutes() -> None:
+    assert cli.build_parser().parse_args(["auto"]).poll_interval == 120
+    assert auto.AutoSupervisor(Adapter({"one": "ready"})).poll_interval == 120
+
+
+@pytest.mark.parametrize("used", [85, 100])
+def test_quota_checks_and_rotation_never_queue_reviewer_messages(used: int, monkeypatch) -> None:
+    adapter = Adapter({"one": "blocked" if used == 100 else "close", "two": "ready"})
+    commands: list[list[str]] = []
     child = Process(None)
-    queued: list[tuple[list[str], dict]] = []
-    waits: list[float] = []
 
-    def queue_runner(arguments, **kwargs):
-        queued.append((arguments, kwargs))
-        return subprocess.CompletedProcess(arguments, 0)
+    def forbidden(*_args, **_kwargs):
+        pytest.fail("supervisor must not issue non-interactive messages")
 
+    monkeypatch.setattr(auto.subprocess, "run", forbidden)
     supervisor = auto.AutoSupervisor(
-        adapter,
-        initial_arguments=["resume", "root-42"],
-        queue_runner=queue_runner,
-        sleep=waits.append,
-        review_drain_grace=8,
+        adapter, initial_arguments=["resume", "root-42"],
+        popen=lambda args, **_kwargs: commands.append(args) or Process(0),
+        sleep=lambda _seconds: setattr(child, "result", 0),
     )
     supervisor.bound_account = "one"
-
-    supervisor._request_review_drain(child)
-    supervisor._request_review_drain(child)
-
-    assert queued[0][0] == [
-        "/usr/bin/codex", "queue", "--thread", "root-42", "--message",
-        auto.REVIEW_DRAIN_MESSAGE,
-    ]
-    assert queued[0][1]["env"]["CODEX_HOME"] == "/profiles/one"
-    assert waits == [8]
-    assert len(queued) == 1
-
-
-@pytest.mark.parametrize(
-    ("five_hour_used", "weekly_used", "expected"),
-    [(84, 84, False), (85, None, True), (None, 85, True)],
-)
-def test_review_drain_starts_at_configured_usage_threshold(
-    five_hour_used: int | None, weekly_used: int | None, expected: bool
-) -> None:
-    supervisor = auto.AutoSupervisor(
-        Adapter({"one": "ready"}), review_drain_threshold=85
-    )
-
-    assert supervisor._review_drain_due(
-        account("one", "ready", five_hour_used=five_hour_used, weekly_used=weekly_used)
-    ) is expected
+    if used == 100:
+        supervisor._stop_child = lambda _child: None
+        assert supervisor._rotate(child) is not None
+        assert commands == [[adapter.binary, *auto.DEFAULT_CODEX_ARGS, "resume", "root-42", "continue"]]
+    else:
+        adapter.account = lambda name, **_kwargs: account(name, "close", five_hour_used=85)
+        supervisor._popen = lambda args, **_kwargs: commands.append(args) or child
+        assert supervisor.run() == 0
+        assert commands == [[adapter.binary, *auto.DEFAULT_CODEX_ARGS, "resume", "root-42"]]
+    assert all("queue" not in command for command in commands)
 
 
-def test_blocked_rotation_queues_review_drain_when_critical_was_missed() -> None:
+def test_interrupt_after_replacement_launch_cleans_up_current_owned_child(monkeypatch) -> None:
     adapter = Adapter({"one": "blocked", "two": "ready"})
     child = Process(None)
-    queued: list[list[str]] = []
-    waits: list[float] = []
+    supervisor = auto.AutoSupervisor(adapter, popen=lambda *_args, **_kwargs: child)
+    stopped: list[Process] = []
+    select = supervisor._wait_for_recommendation
 
-    def queue_runner(arguments, **_kwargs):
-        queued.append(arguments)
-        return subprocess.CompletedProcess(arguments, 0)
+    def interrupt_after_launch(*args):
+        select(*args)
+        supervisor._handle_interrupt(None, None)
 
+    monkeypatch.setattr(supervisor, "_wait_for_recommendation", interrupt_after_launch)
+    monkeypatch.setattr(supervisor, "_stop_child", stopped.append)
+    assert supervisor.run() == 130
+    assert stopped == [child]
+
+
+@pytest.mark.parametrize("exit_code", [130, -signal.SIGINT])
+@pytest.mark.parametrize("exit_probe", ["blocked", "hung"])
+def test_intentional_child_interrupt_never_probes_or_rotates(exit_code, exit_probe, monkeypatch) -> None:
+    adapter = Adapter({"one": "ready", "two": "ready"})
+    probes = 0
+
+    def inspect(name, **_kwargs):
+        nonlocal probes
+        probes += 1
+        if probes > 1 and exit_probe == "hung":
+            pytest.fail("intentional interrupt must not start an exit usage probe")
+        return account(name, "ready" if probes == 1 else "blocked")
+
+    monkeypatch.setattr(adapter, "account", inspect)
     supervisor = auto.AutoSupervisor(
-        adapter,
-        initial_arguments=["resume", "root-42"],
-        popen=lambda *_args, **_kwargs: Process(0),
-        queue_runner=queue_runner,
-        sleep=waits.append,
-        review_drain_grace=5,
+        adapter, initial_arguments=["resume", "root-42"],
+        popen=lambda *_args, **_kwargs: Process(exit_code),
     )
-    supervisor.bound_account = "one"
-    supervisor._stop_child = lambda _child: None  # type: ignore[method-assign]
-
-    assert supervisor._rotate(child) is not None
-    assert queued
-    assert waits == [5]
-
-
-def test_failed_review_queue_does_not_delay_or_prevent_rotation() -> None:
-    adapter = Adapter({"one": "blocked", "two": "ready"})
-    child = Process(None)
-    waits: list[float] = []
-
-    supervisor = auto.AutoSupervisor(
-        adapter,
-        initial_arguments=["resume", "root-42"],
-        popen=lambda *_args, **_kwargs: Process(0),
-        queue_runner=lambda *_args, **_kwargs: subprocess.CompletedProcess([], 1),
-        sleep=waits.append,
-    )
-    supervisor.bound_account = "one"
-    supervisor._stop_child = lambda _child: None  # type: ignore[method-assign]
-
-    assert supervisor._rotate(child) is not None
-    assert waits == []
-
-
-def test_failed_early_review_queue_gets_one_final_blocked_retry() -> None:
-    adapter = Adapter({"one": "blocked"})
-    child = Process(None)
-    results = [1, 0]
-    queued: list[list[str]] = []
-    waits: list[float] = []
-
-    def queue_runner(arguments, **_kwargs):
-        queued.append(arguments)
-        return subprocess.CompletedProcess(arguments, results.pop(0))
-
-    supervisor = auto.AutoSupervisor(
-        adapter,
-        initial_arguments=["resume", "root-42"],
-        queue_runner=queue_runner,
-        sleep=waits.append,
-        review_drain_grace=6,
-    )
-    supervisor.bound_account = "one"
-
-    supervisor._request_review_drain(child)
-    supervisor._request_review_drain(child)
-    supervisor._request_review_drain(child, final=True)
-    supervisor._request_review_drain(child, final=True)
-
-    assert len(queued) == 2
-    assert waits == [6]
-
-
-@pytest.mark.parametrize("value", ["-1", "121"])
-def test_review_drain_grace_is_bounded(value: str) -> None:
-    args = cli.build_parser().parse_args(["auto", "--review-drain-grace", value])
-    with pytest.raises(ValueError, match="review-drain-grace"):
-        auto.run(args)
-
-
-@pytest.mark.parametrize("value", ["0", "100"])
-def test_review_drain_threshold_is_bounded(value: str) -> None:
-    args = cli.build_parser().parse_args(["auto", "--review-drain-threshold", value])
-    with pytest.raises(ValueError, match="review-drain-threshold"):
-        auto.run(args)
+    assert supervisor.run() == 130
+    assert probes == 1
+    assert adapter.activations == []
 
 
 def test_preblocked_startup_activates_a_live_recommendation_before_launch() -> None:
@@ -284,25 +224,31 @@ def test_blocked_active_rotates_to_authenticated_nonduplicate_critical_fallback(
     assert started[0][-3:] == ["resume", "root-42", "continue"]
 
 
-def test_all_blocked_waits_then_recovers() -> None:
+@pytest.mark.parametrize("status", ["blocked", "error", "unknown"])
+def test_all_unavailable_returns_to_shell_once(status, capsys) -> None:
+    adapter = Adapter({"one": status, "two": status})
+    def forbidden(*_args, **_kwargs):
+        pytest.fail("no child or capacity sleep is permitted")
+    supervisor = auto.AutoSupervisor(adapter, popen=forbidden, sleep=forbidden)
+    assert supervisor.run() == 75
+    assert adapter.accounts_refreshes == 1
+    assert adapter.activations == []
+    assert "No usable Codex profile available; returning to shell" in capsys.readouterr().err
+
+
+def test_failed_rotation_keeps_owned_child_interactive_without_more_probes() -> None:
     adapter = Adapter({"one": "blocked", "two": "blocked"})
-    supervisor = auto.AutoSupervisor(
-        adapter, poll_interval=0.1, popen=lambda *_args, **_kwargs: Process(0)
-    )
-    waits: list[float] = []
-
-    def sleep(seconds: float) -> None:
-        waits.append(seconds)
-        adapter.statuses["two"] = "ready"
-
-    supervisor._sleep = sleep
-    replacement = supervisor._wait_for_recommendation(None, None)
-    assert replacement is not None
-    assert adapter.activations == ["two"]
-    assert waits == [0.1]
+    child = Process(None)
+    supervisor = auto.AutoSupervisor(adapter, initial_arguments=["resume", "root-42"])
+    supervisor.bound_account = "one"
+    supervisor._stop_child = lambda _child: pytest.fail("keep existing child")
+    assert supervisor._rotate(child) is child
+    assert supervisor.automation_disabled
+    assert adapter.accounts_refreshes == 1
+    assert adapter.activations == []
 
 
-@pytest.mark.parametrize("status", ["ready", "close", "critical", "unknown", "error"])
+@pytest.mark.parametrize("status", ["ready", "close", "critical"])
 def test_normal_exit_and_nonblocked_states_never_switch(status: str) -> None:
     adapter = Adapter({"one": status, "two": "ready"})
     supervisor = auto.AutoSupervisor(adapter, popen=lambda *_args, **_kwargs: Process(7))
@@ -318,20 +264,66 @@ def test_ctrl_c_is_an_intentional_stop_without_rotation() -> None:
     assert adapter.activations == []
 
 
-def test_running_child_uses_the_configured_poll_interval() -> None:
+@pytest.mark.parametrize("interval", [None, 4])
+def test_running_child_uses_the_configured_poll_interval(interval: float | None, monkeypatch) -> None:
     adapter = Adapter({"one": "ready"})
     child = Process(None)
     waits: list[float] = []
+    now = 0.0
+    expected_interval = 120 if interval is None else interval
+    probes: list[float] = []
+    account = adapter.account
+
+    def inspect(*args, **kwargs):
+        probes.append(now)
+        return account(*args, **kwargs)
 
     def sleep(seconds: float) -> None:
+        nonlocal now
         waits.append(seconds)
-        child.result = 0
+        now += seconds
+        if now > expected_interval:
+            child.result = 0
+
+    monkeypatch.setattr(auto.time, "monotonic", lambda: now)
+    monkeypatch.setattr(adapter, "account", inspect)
 
     supervisor = auto.AutoSupervisor(
-        adapter, poll_interval=4, popen=lambda *_args, **_kwargs: child, sleep=sleep
+        adapter, **({"poll_interval": interval} if interval is not None else {}),
+        popen=lambda *_args, **_kwargs: child, sleep=sleep
     )
     assert supervisor.run() == 0
-    assert waits == [4]
+    assert waits == [1] * (expected_interval + 1)
+    # Startup checks, one scheduled running check, then the existing exit check.
+    assert probes == [0, 0, expected_interval, expected_interval + 1]
+
+
+def test_child_exit_interrupts_a_long_quota_wait() -> None:
+    supervisor = auto.AutoSupervisor(Adapter({"one": "ready"}))
+    child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(0.05)"])
+    try:
+        started = time.monotonic()
+        supervisor._wait_for_child(child, 120)
+        assert time.monotonic() - started < 2
+        assert child.poll() == 0
+    finally:
+        if child.poll() is None:
+            child.kill()
+        child.wait()
+
+
+def test_ctrl_c_wakes_a_long_running_child_wait() -> None:
+    supervisor = auto.AutoSupervisor(Adapter({"one": "ready"}))
+    timer = threading.Timer(0.05, supervisor._on_interrupt, args=(None, None))
+    timer.start()
+    try:
+        started = time.monotonic()
+        supervisor._wait_for_child(Process(None), 120)
+        assert time.monotonic() - started < 0.5
+        assert supervisor.stop_requested
+    finally:
+        timer.cancel()
+        timer.join()
 
 
 def test_recommendation_excludes_duplicate_and_unauthenticated_profiles() -> None:
@@ -406,6 +398,65 @@ def test_selection_lock_rejects_a_symlinked_private_lock(tmp_path: Path) -> None
     with pytest.raises(RuntimeError, match="must not be a symbolic link"):
         with auto.AutoSupervisor(adapter)._selection_lock():
             pass
+
+
+def test_hung_selection_does_not_hold_lock_or_block_another_terminal(tmp_path: Path) -> None:
+    context = multiprocessing.get_context("fork")
+    probing, release = context.Event(), context.Event()
+    profiles = tmp_path / "profiles"
+
+    def slow_terminal():
+        adapter = Adapter({"one": "blocked", "two": "ready"})
+        adapter.profile_root = profiles
+        original = adapter.accounts
+        def accounts(**kwargs):
+            probing.set()
+            assert release.wait(5)
+            return original(**kwargs)
+        adapter.accounts = accounts
+        supervisor = auto.AutoSupervisor(adapter, popen=lambda *_a, **_kw: Process(0))
+        assert supervisor._select_activate_and_start(None) is not None
+
+    process = context.Process(target=slow_terminal)
+    process.start()
+    try:
+        assert probing.wait(3)
+        adapter = Adapter({"one": "blocked", "two": "ready"})
+        adapter.profile_root = profiles
+        original = adapter.accounts
+        def accounts(**kwargs):
+            # A separate descriptor proves the snapshot is outside mutation lock.
+            profiles.mkdir(exist_ok=True)
+            with (profiles / auto.AUTO_LOCK_NAME).open("a") as descriptor:
+                fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                fcntl.flock(descriptor, fcntl.LOCK_UN)
+            return original(**kwargs)
+        adapter.accounts = accounts
+        second = auto.AutoSupervisor(adapter, popen=lambda *_a, **_kw: Process(0))
+        assert second._select_activate_and_start(None) is not None
+        assert not release.is_set()
+        assert second.bound_account == "two"
+    finally:
+        release.set()
+        process.join(5)
+        if process.is_alive():
+            process.kill()
+            process.join()
+    assert process.exitcode == 0
+
+
+def test_busy_selection_is_attempted_once_and_keeps_existing_child(tmp_path, monkeypatch, capsys) -> None:
+    adapter = Adapter({"one": "blocked", "two": "ready"})
+    child = Process(None)
+    supervisor = auto.AutoSupervisor(adapter, initial_arguments=["resume", "root-42"])
+    def busy():
+        raise TimeoutError()
+    monkeypatch.setattr(supervisor, "_selection_lock", busy)
+    monkeypatch.setattr(supervisor, "_stop_child", lambda _child: pytest.fail("do not stop on lock contention"))
+    assert supervisor._rotate(child) is child
+    assert supervisor.automation_disabled
+    assert adapter.accounts_refreshes == 1
+    assert "selection is busy" in capsys.readouterr().err
 
 
 def test_session_locator_uses_cli_root_and_excludes_json_subagent(tmp_path: Path) -> None:

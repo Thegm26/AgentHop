@@ -21,6 +21,7 @@ BUILT_ICON = ROOT / "frontend" / "dist" / "assets" / "agenthop-mascot.png"
 SOURCE_ICON = ROOT / "frontend" / "public" / "assets" / "agenthop-mascot.png"
 ICON = BUILT_ICON if BUILT_ICON.is_file() else SOURCE_ICON
 HTTP_TIMEOUT = 4
+REFRESH_HTTP_TIMEOUT = 90
 REFRESH_INTERVAL_SECONDS = 3_600
 
 
@@ -113,14 +114,15 @@ def stop_backend(backend: subprocess.Popen[object] | None) -> None:
 
 
 def request_json(
-    url: str, method: str = "GET", body: dict[str, Any] | None = None
+    url: str, method: str = "GET", body: dict[str, Any] | None = None,
+    *, timeout: float = HTTP_TIMEOUT,
 ) -> dict[str, Any]:
     data = json.dumps(body).encode() if body is not None else None
     request = Request(url, data=data, method=method)
     if data is not None:
         request.add_header("Content-Type", "application/json")
     request.add_header("Accept", "application/json")
-    with urlopen(request, timeout=HTTP_TIMEOUT) as response:
+    with urlopen(request, timeout=timeout) as response:
         return json.loads(response.read().decode())
 
 
@@ -131,7 +133,9 @@ def fetch_state(base_url: str) -> dict[str, Any]:
 
 def refresh_state(base_url: str) -> dict[str, Any]:
     """Ask the local backend to refresh usage before rebuilding the tray."""
-    return request_json(f"{base_url}/api/refresh", method="POST")
+    return request_json(
+        f"{base_url}/api/refresh", method="POST", timeout=REFRESH_HTTP_TIMEOUT
+    )
 
 
 def send_notification(notify_module: Any, title: str, message: str) -> None:

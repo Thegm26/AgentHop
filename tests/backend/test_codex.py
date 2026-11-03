@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import shlex
 import sqlite3
+import subprocess
 import time
 from pathlib import Path
 
@@ -334,6 +335,24 @@ def test_usage_exposes_available_reset_credit_count_without_credit_ids() -> None
     assert CodexAdapter._reset_credit_ids({"rateLimitResetCredits": {"credits": [{"creditId": "opaque-credit-id"}]}}) == ["opaque-credit-id"]
 
 
+@pytest.mark.parametrize("credits", [None, {}, {"availableCount": None},
+    {"availableCount": True}, {"availableCount": False}, {"availableCount": "2"},
+    {"availableCount": -1}, {"availableCount": 1.5}])
+def test_usage_does_not_report_invalid_reset_credit_counts(credits) -> None:
+    usage = CodexAdapter._usage({}, {"rateLimitResetCredits": credits})
+    assert usage.reset_credits_available == 0
+
+
+def test_usage_missing_reset_credits_is_unavailable() -> None:
+    assert CodexAdapter._usage({}, {}).reset_credits_available == 0
+
+
+def test_rpc_timeout_defaults_to_fifteen_seconds_with_override(tmp_path: Path) -> None:
+    options = {"default_home": tmp_path / "default", "profile_root": tmp_path / "profiles", "binary": "/test/codex"}
+    assert CodexAdapter(**options).rpc_timeout == 15
+    assert CodexAdapter(**options, rpc_timeout=2).rpc_timeout == 2
+
+
 def test_usage_uses_window_exhaustion_not_ordinary_usage_flag() -> None:
     usage = CodexAdapter._usage(
         {"account": {"planType": "plus"}},
@@ -429,7 +448,8 @@ def test_transient_rpc_timeout_preserves_local_authentication_and_cached_identit
         "_rpc_call",
         lambda _home: (
             {"account": {"email": "profile@example.com"}},
-            {"rateLimits": {"primary": {"windowDurationMins": 300, "usedPercent": 20}}},
+            {"rateLimits": {"primary": {"windowDurationMins": 300, "usedPercent": 20}},
+             "rateLimitResetCredits": {"availableCount": 2}},
         ),
     )
     connected = adapter.accounts(refresh=True)[1]
@@ -441,10 +461,12 @@ def test_transient_rpc_timeout_preserves_local_authentication_and_cached_identit
     transient = adapter.accounts(refresh=True)[1]
 
     assert connected.authenticated is True
+    assert connected.usage and connected.usage.reset_credits_available == 2
     assert transient.authenticated is True
     assert transient.email == "profile@example.com"
     assert transient.usage and transient.usage.status == "error"
     assert transient.usage.error == "Codex app-server timed out"
+    assert transient.usage.reset_credits_available == 0
 
 
 def test_identity_cache_is_cleared_for_unauthenticated_and_duplicate_profiles(
@@ -497,13 +519,20 @@ def test_destination_symlink_is_rejected(adapter: CodexAdapter, tmp_path: Path) 
     assert local.read_text() == "session"
 
 
-def test_rpc_partial_line_honors_timeout_and_cleans_up(tmp_path: Path) -> None:
-    pid_file = tmp_path / "pid"
+def test_rpc_partial_line_honors_timeout_and_cleans_up(tmp_path: Path, monkeypatch) -> None:
+    spawned: list[subprocess.Popen] = []
+    real_popen = subprocess.Popen
+
+    def capture_process(*args, **kwargs):
+        process = real_popen(*args, **kwargs)
+        spawned.append(process)
+        return process
+
+    monkeypatch.setattr(subprocess, "Popen", capture_process)
     binary = tmp_path / "fake-codex"
     binary.write_text(
         "#!/usr/bin/env python3\n"
-        "import os, pathlib, sys, time\n"
-        f"pathlib.Path({str(pid_file)!r}).write_text(str(os.getpid()))\n"
+        "import sys, time\n"
         "sys.stdin.readline()\n"
         "sys.stdout.write('{\\\"id\\\":2')\n"
         "sys.stdout.flush()\n"
@@ -523,9 +552,10 @@ def test_rpc_partial_line_honors_timeout_and_cleans_up(tmp_path: Path) -> None:
     with pytest.raises(RuntimeError, match="timed out"):
         adapter._rpc_call(home)
     assert time.monotonic() - started < 1
-    pid = int(pid_file.read_text())
+    assert len(spawned) == 1
+    assert spawned[0].returncode is not None
     with pytest.raises(ProcessLookupError):
-        os.kill(pid, 0)
+        os.kill(spawned[0].pid, 0)
 
 
 def test_rpc_does_not_surface_server_error_details(tmp_path: Path) -> None:

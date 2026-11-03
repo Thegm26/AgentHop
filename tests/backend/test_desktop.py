@@ -204,6 +204,8 @@ def test_state_helpers_use_the_read_and_refresh_endpoints(monkeypatch) -> None:
         "http://127.0.0.1:9000/api/state",
         "http://127.0.0.1:9000/api/refresh",
     ]
+    assert [timeout for _, timeout in seen] == [4, 90]
+    assert desktop.REFRESH_INTERVAL_SECONDS == 3_600
 
 
 def test_send_notification_ignores_desktop_notification_failures() -> None:

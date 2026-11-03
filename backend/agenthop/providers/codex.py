@@ -41,6 +41,10 @@ DEFAULT_REMOVED_MARKER = ".default-removed"
 DEFAULT_ACCOUNT_FILES = ("auth.json", "config.toml", "config.json")
 
 
+class ProbeCancelled(BaseException):
+    """Stop an auto supervisor's provider work without caching an error."""
+
+
 class CodexAdapter(ProviderAdapter):
     id = "codex"
     name = "OpenAI Codex"
@@ -51,13 +55,14 @@ class CodexAdapter(ProviderAdapter):
         default_home: Path | None = None,
         profile_root: Path | None = None,
         binary: str | None = None,
-        rpc_timeout: float = 5.0,
+        rpc_timeout: float = 15.0,
     ) -> None:
         home = Path.home()
         self.default_home = (default_home or home / ".codex").expanduser()
         self.profile_root = (profile_root or home / ".codex-profiles").expanduser()
         self.binary = binary or shutil.which("codex")
         self.rpc_timeout = rpc_timeout
+        self.cancel_event: threading.Event | None = None
         self._migration_lock = threading.Lock()
         self._cache_lock = threading.Lock()
         self._usage_cache: dict[str, UsageModel] = {}
@@ -229,6 +234,8 @@ class CodexAdapter(ProviderAdapter):
             self._email_cache.pop(account, None)
 
     def _rpc_call(self, home: Path) -> tuple[dict[str, Any], dict[str, Any]]:
+        if self.cancel_event is not None and self.cancel_event.is_set():
+            raise ProbeCancelled()
         if not self.binary:
             raise RuntimeError("codex executable not found in PATH")
         env = os.environ.copy()
@@ -286,9 +293,14 @@ class CodexAdapter(ProviderAdapter):
             reader.start()
             deadline = time.monotonic() + self.rpc_timeout
             while time.monotonic() < deadline and not {2, 3}.issubset(replies):
+                if self.cancel_event is not None and self.cancel_event.is_set():
+                    raise ProbeCancelled()
                 try:
-                    line = lines.get(timeout=max(0.0, deadline - time.monotonic()))
+                    remaining = max(0.0, deadline - time.monotonic())
+                    line = lines.get(timeout=min(0.1, remaining) if self.cancel_event is not None else remaining)
                 except queue.Empty:
+                    if self.cancel_event is not None:
+                        continue
                     break
                 if line is None:
                     break
@@ -488,7 +500,7 @@ class CodexAdapter(ProviderAdapter):
             fiveHourResetsAt=five.get("resetsAt"),
             weeklyUsed=week.get("usedPercent"),
             weeklyResetsAt=week.get("resetsAt"),
-            resetCreditsAvailable=available_credits if isinstance(available_credits, int) and available_credits >= 0 else 0,
+            resetCreditsAvailable=available_credits if type(available_credits) is int and available_credits >= 0 else 0,
             allowed=allowed if isinstance(allowed, bool) else None,
             status=status,
         )

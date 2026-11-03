@@ -60,6 +60,9 @@ export function AccountCard({ account, recommended, busy, disabled, onActivate, 
   ].filter((item): item is { label: string; usedPercent: number; resetsAt: number | null | undefined } => typeof item.usedPercent === 'number')
   const reconnectable = !account.duplicate && isAuthenticationFailure(account)
   const transientProbeFailure = account.usage?.status === 'error' && !reconnectable
+  const credits = account.usage?.resetCreditsAvailable
+  const resetCredits = account.authenticated && !account.duplicate && account.usage?.status !== 'error' && !account.usage?.error
+    && typeof credits === 'number' && Number.isSafeInteger(credits) && credits > 0 ? credits : null
   const unavailable = reconnectable || account.duplicate || account.usage?.status === 'blocked'
   // Named profiles are local resources: every inactive one is removable,
   // regardless of whether its last usage probe was ready, unknown, or failed.
@@ -109,13 +112,16 @@ export function AccountCard({ account, recommended, busy, disabled, onActivate, 
             </div>
           )
         })}
+        <dl className="usage-details" aria-label="Usage resets left">
+          <div><dt>Usage resets left</dt><dd>{resetCredits ?? 'Unavailable'}</dd></div>
+        </dl>
       </div>
 
       {status === 'blocked' && <p className="account-unblock"><ClockIcon /> {unblockWait == null ? 'Unblock time unavailable' : unblockWait === 'now' ? 'Reset due; refresh status' : `Expected unblock ${unblockWait}`}</p>}
       {transientProbeFailure && <p className="account-warning">Usage check was temporary: {account.usage?.error || 'try refreshing again.'}</p>}
 
       <div className="account-actions">
-        {(account.usage?.resetCreditsAvailable ?? 0) > 0 && <button className="button button--secondary" disabled={disabled} onClick={() => onRedeemResetCredit(account)}>{busy ? 'Redeeming…' : `Redeem usage limit reset (${account.usage?.resetCreditsAvailable})`}</button>}
+        {resetCredits != null && <button className="button button--secondary" disabled={disabled} onClick={() => onRedeemResetCredit(account)}>{busy ? 'Redeeming…' : `Redeem usage limit reset (${resetCredits})`}</button>}
         {account.duplicate && <span className="account-warning">Duplicate credentials</span>}
         {reconnectable && <button className="button button--primary" disabled={disabled} onClick={() => onReconnect(account)}>{busy ? 'Preparing…' : 'Reconnect'}</button>}
         {transientProbeFailure && <button className="button button--secondary" disabled={disabled} onClick={onRefresh}>Retry refresh</button>}
