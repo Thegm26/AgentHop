@@ -6,6 +6,7 @@ const root = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const metadata = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
 const requiredFiles = [
   "bin/agenthop.js",
+  "bin/codex-auto.js",
   "backend/agenthop/desktop.py",
   "frontend/dist/index.html",
   "frontend/dist/assets/agenthop-mascot.png",
@@ -21,6 +22,9 @@ if (metadata.name !== "@thegm26/agenthop") {
 }
 if (metadata.bin?.agenthop !== "bin/agenthop.js") {
   failures.push("package must expose the agenthop launcher");
+}
+if (metadata.bin?.["codex-auto"] !== "bin/codex-auto.js") {
+  failures.push("package must expose the codex-auto launcher");
 }
 if (!metadata.os?.includes("linux")) {
   failures.push("package must be restricted to Linux");

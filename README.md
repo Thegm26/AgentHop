@@ -149,14 +149,18 @@ the proven root session with `continue` after a switch. It deliberately does not
 switch on critical, unknown, or failed usage checks.
 
 ```bash
+codex-auto resume SESSION_ID
+codex-auto "your initial prompt"
 agenthop auto -- resume SESSION_ID
 agenthop auto --poll-interval 60 --continue-prompt continue -- "your initial prompt"
 agenthop auto --review-drain-threshold 85 --review-drain-grace 45 -- resume SESSION_ID
 ```
 
-The convenience shell function `codex-auto` passes its arguments to this mode
-while retaining its fixed workspace, approval, search, and `/tmp` options. You
-can run multiple terminal instances at once: each independently tracks and
+The npm package installs `codex-auto`, which forwards all arguments as Codex
+arguments to `agenthop auto --`. For example, `codex-auto --help` shows Codex
+help; use `agenthop auto --help` for supervisor options. Existing `codex-auto`
+shell functions remain compatible and take precedence over the installed command.
+You can run multiple terminal instances at once: each independently tracks and
 resumes its own root session, while profile selection is briefly coordinated on
 disk. Use Ctrl-C to stop only that terminal's supervisor; when every usable
 profile is exhausted, each affected instance waits and polls until capacity

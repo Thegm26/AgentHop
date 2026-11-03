@@ -1,6 +1,6 @@
 {
   "name": "@thegm26/agenthop",
-  "version": "0.5.4",
+  "version": "0.5.5",
   "description": "Local, tray-first AI coding account switcher",
   "license": "MIT",
   "type": "module",
@@ -11,7 +11,8 @@
     "node": ">=18.19"
   },
   "bin": {
-    "agenthop": "bin/agenthop.js"
+    "agenthop": "bin/agenthop.js",
+    "codex-auto": "bin/codex-auto.js"
   },
   "files": [
     "backend",

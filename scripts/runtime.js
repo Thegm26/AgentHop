@@ -139,7 +139,7 @@ export function runLauncher(args, environment = process.env) {
     printHelp();
     return 0;
   }
-  if (args.includes("--version") || args.includes("-v")) {
+  if (args[0] !== "auto" && (args.includes("--version") || args.includes("-v"))) {
     console.log(metadata.version);
     return 0;
   }
